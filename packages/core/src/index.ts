@@ -25,3 +25,28 @@ export {
   type SummarizeOptions,
   type SummarizerBackend,
 } from "./summarize/index.js";
+export {
+  buildIndex,
+  loadIndex,
+  buildChunks,
+  chunkHash,
+  ask,
+  buildAnswerPrompt,
+  BruteForceStore,
+  normalizeVector,
+  DEFAULT_TOP_K,
+  INDEX_FILENAME,
+  VECTORS_FILENAME,
+  type Chunk,
+  type StoredChunk,
+  type SearchHit,
+  type VectorStore,
+  type EmbeddingBackend,
+  type ChatBackend,
+  type IndexOptions,
+  type IndexReport,
+  type AskOptions,
+  type AskResult,
+  type Source,
+} from "./rag/index.js";
+export { DEFAULT_EMBED_MODEL } from "./summarize/ollama.js";

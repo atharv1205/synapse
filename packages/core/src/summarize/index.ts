@@ -122,7 +122,8 @@ export async function summarizeGraph(
 
   const preflight = await backend.preflight();
   if (!preflight.ok) {
-    return { ...base, message: preflight.message };
+    // preflight is shared with the RAG pass, so the opt-out hint belongs here.
+    return { ...base, message: `${preflight.message}\n  Or skip this pass with --skip-summarize.` };
   }
 
   // graph.nodes is already sorted by importance descending.

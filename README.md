@@ -3,7 +3,7 @@
 Analyses a codebase — from a GitHub URL or a local folder — and produces a dependency
 graph of its files and functions, scored by how important each one is.
 
-**Status: Phases 0-2 complete.** The RAG Q&A interface and the 3D viewer are not built yet.
+**Status: Phases 0-3 complete.** The 3D viewer is not built yet.
 
 ## Quick start
 
@@ -19,6 +19,13 @@ Or point it at a repo:
 node packages/cli/dist/src/index.js analyze https://github.com/pallets/itsdangerous
 ```
 
+Then ask it things:
+
+```bash
+ollama pull nomic-embed-text
+node packages/cli/dist/src/index.js ask "what does the import resolver handle?" --show-sources
+```
+
 ## Layout
 
 | Package | What it is |
@@ -28,6 +35,10 @@ node packages/cli/dist/src/index.js analyze https://github.com/pallets/itsdanger
 | `packages/web` | Placeholder for the 3D viewer (Phase 3) |
 
 ## CLI
+
+Three commands: `analyze` builds the graph, `index` builds the embedding index, and
+`ask` answers questions over it. `ask` builds the index itself if one is missing, so
+`index` is only needed to pre-warm.
 
 ```
 synapse analyze <path-or-github-url> [options]
@@ -43,6 +54,20 @@ synapse analyze <path-or-github-url> [options]
   --ollama-url <url>     Ollama base URL (default: http://localhost:11434)
 
   --json                 Print the graph to stdout instead of writing a file
+
+synapse index [path] [options]
+  --path <dir>           Repo root, for recovering function signatures (default: .)
+
+synapse ask "<question>" [options]
+  --path <dir>           Repo root (default: .)
+  --top-k <n>            How many chunks to retrieve (default: 8)
+  --show-sources         List the files and functions the answer drew on
+
+Shared by all three:
+  --out <dir>            Where .synapse artefacts live
+  --model <name>         Chat model (default: qwen2.5:14b-instruct)
+  --embed-model <name>   Embedding model (default: nomic-embed-text)
+  --ollama-url <url>     Ollama base URL (default: http://localhost:11434)
 ```
 
 A URL is cloned shallowly into a temp directory and removed when the run finishes.
@@ -100,6 +125,33 @@ files that actually changed — on this repo a fully cached re-run takes under h
 If Ollama is not running or the model is not pulled, the run reports exactly how to fix it
 and continues without summaries. It never takes down the analysis.
 
+**Retrieval.** `ask` embeds the question locally and retrieves the most similar chunks
+by cosine similarity, then hands them to the chat model with instructions to answer only
+from that context and to say so when the context falls short.
+
+The corpus is chunked at two granularities so retrieval can be specific: one chunk per
+file (path, summary, full declaration list, graph metrics) and one chunk per
+individually-summarised function (summary, real signature sliced from source, owning
+file, resolved outgoing calls). Coarse chunks answer "where does X live"; fine chunks
+answer questions about specific behaviour.
+
+Chunks are keyed by a SHA-256 of their own text, the same invalidation rule summaries
+use, so re-indexing only embeds what changed. Changing `--embed-model` invalidates
+everything, because vectors from two models are not comparable.
+
+**The vector store is brute-force cosine over a flat `Float32Array`, deliberately.**
+Synapse indexes one chunk per file plus a few per summarised file, so even a large repo
+lands in the low tens of thousands of chunks. Measured: 3ms per query at 1,000 chunks,
+6ms at 5,000, 24ms at 20,000, 60ms at 50,000. LanceDB was considered and rejected — it
+pulls 134 packages including the OpenAI SDK and `@huggingface/transformers`, which is a
+strange thing to install into a tool whose premise is that nothing leaves your machine.
+The store sits behind a `VectorStore` interface, so swapping in an ANN backend later is
+a contained change.
+
+Vectors are stored unit-length in `.synapse/embeddings.bin` with metadata in
+`.synapse/embeddings.json`, so a dot product *is* the cosine similarity and no
+per-comparison normalisation is needed.
+
 ## Output
 
 Written to `.synapse/graph.json`:
@@ -151,6 +203,13 @@ responses, so the suite never starts a model or touches the network. It covers t
 round-trip, that a changed file re-summarises while its unchanged neighbours do not, that
 preflight failures degrade gracefully, and that hallucinated function names are dropped.
 
+Retrieval is tested against a deterministic fake embedder — a bag-of-words vector over a
+fixed vocabulary — so cosine ranking is exercised for real without a model. It covers
+chunk construction at both granularities, the store's save/load round-trip, that an
+unchanged rebuild embeds nothing, that only edited chunks are re-embedded, that changing
+the embedding model invalidates the index, and that every failure mode returns
+remediation rather than throwing.
+
 ## Known limits
 
 - `git log --follow` only accepts one path at a time, so churn is one git process per file.
@@ -160,3 +219,8 @@ preflight failures degrade gracefully, and that hallucinated function names are 
 - Only JS/TS/TSX and Python are parsed. Other files are ignored entirely.
 - Summaries are only as good as the local model. The prompt sends the first 6000
   characters of a file, so a summary of a very large file describes its head, not its tail.
+- Retrieval searches summaries and declarations, not raw source. A question whose answer
+  lives in a function body that was never summarised will not find it.
+- Embeddings need a model built for them. Asking a chat model to embed fails, because
+  Ollama only starts embedding-capable runners for embedding models; `synapse index`
+  detects this and names the fix.
