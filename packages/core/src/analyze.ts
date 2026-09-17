@@ -1,0 +1,81 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { resolveSource } from "./ingest/source.js";
+import { walkSourceFiles } from "./ingest/walk.js";
+import { parseFile, type ParsedFile } from "./parse/extract.js";
+import { buildGraph } from "./graph/build.js";
+import { measureChurn } from "./graph/churn.js";
+import type { ScoreWeights } from "./graph/score.js";
+import type { RepoGraph } from "./types.js";
+
+export interface AnalyzeOptions {
+  /** Clone depth when the target is a URL. */
+  depth?: number;
+  /** Blend of centrality and churn; defaults to 70/30. */
+  weights?: ScoreWeights;
+  /** Skip the git history pass. */
+  skipChurn?: boolean;
+  onProgress?: (message: string) => void;
+}
+
+/** Runs the full pipeline: ingest, parse, resolve, score. Does not write anything to disk. */
+export async function analyze(target: string, options: AnalyzeOptions = {}): Promise<RepoGraph> {
+  const { onProgress = () => {} } = options;
+  const source = await resolveSource(target, { depth: options.depth, onProgress });
+
+  try {
+    onProgress("Listing source files …");
+    const { files, manifests } = await walkSourceFiles(source.root);
+    onProgress(`Found ${files.length} source files.`);
+
+    onProgress("Parsing …");
+    const parsed = new Map<string, ParsedFile>();
+    for (const file of files) {
+      try {
+        const contents = await readFile(file.absPath, "utf8");
+        parsed.set(file.path, parseFile(file.path, contents, file.language));
+      } catch {
+        // An unreadable or undecodable file drops out of the graph rather than failing the run.
+      }
+    }
+
+    onProgress("Measuring git churn …");
+    const churn = options.skipChurn
+      ? { counts: new Map<string, number>(), available: false }
+      : await measureChurn(source.root, files.map((f) => f.path));
+
+    onProgress("Building graph …");
+    const { ImportResolver } = await import("./graph/resolve.js");
+    const resolver = await ImportResolver.create(source.root, files, manifests);
+
+    const result = buildGraph({
+      files,
+      parsed,
+      resolver,
+      churn: churn.counts,
+      churnAvailable: churn.available,
+      weights: options.weights,
+    });
+
+    return {
+      version: 1,
+      source: source.source,
+      generatedAt: new Date().toISOString(),
+      stats: result.stats,
+      nodes: result.nodes,
+      edges: result.edges,
+      functionNodes: result.functionNodes,
+      functionEdges: result.functionEdges,
+    };
+  } finally {
+    await source.cleanup();
+  }
+}
+
+/** Writes a graph to `<outDir>/graph.json` and returns the path written. */
+export async function writeGraph(graph: RepoGraph, outDir: string): Promise<string> {
+  await mkdir(outDir, { recursive: true });
+  const target = path.join(outDir, "graph.json");
+  await writeFile(target, `${JSON.stringify(graph, null, 2)}\n`, "utf8");
+  return target;
+}

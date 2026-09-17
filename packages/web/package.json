@@ -1,0 +1,9 @@
+{
+  "name": "@repograph/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Placeholder for the React + react-three-fiber 3D graph viewer (Phase 3).",
+  "scripts": {
+    "dev": "echo 'web package not implemented yet' && exit 1"
+  }
+}
