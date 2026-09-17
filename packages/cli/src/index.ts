@@ -38,6 +38,8 @@ ask:
   --path <dir>           Repo root (default: .)
   --top-k <n>            How many chunks to retrieve (default: ${DEFAULT_TOP_K})
   --show-sources         List the files and functions the answer drew on
+  --global-rank          Rank purely by similarity, without reserving seats per
+                         chunk kind (file vs function). Off by default.
 
 Shared:
   --out <dir>            Where .synapse artefacts live (default: <path>/.synapse)
@@ -227,6 +229,7 @@ async function runAsk(question: string, values: Record<string, unknown>): Promis
     graph,
     cacheDir: outDir,
     topK: values["top-k"] ? Number(values["top-k"]) : undefined,
+    globalRank: values["global-rank"] === true,
     model: ollama.model,
     embedModel: ollama.embedModel,
     baseUrl: ollama.baseUrl,
@@ -270,6 +273,7 @@ async function main(): Promise<void> {
       "summarize-top": { type: "string" },
       "top-k": { type: "string" },
       "show-sources": { type: "boolean" },
+      "global-rank": { type: "boolean" },
       "ollama-url": { type: "string" },
       json: { type: "boolean" },
       help: { type: "boolean", short: "h" },

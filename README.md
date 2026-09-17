@@ -125,9 +125,25 @@ files that actually changed — on this repo a fully cached re-run takes under h
 If Ollama is not running or the model is not pulled, the run reports exactly how to fix it
 and continues without summaries. It never takes down the analysis.
 
-**Retrieval.** `ask` embeds the question locally and retrieves the most similar chunks
-by cosine similarity, then hands them to the chat model with instructions to answer only
-from that context and to say so when the context falls short.
+**Retrieval.** `ask` embeds the question locally and retrieves the most similar chunks,
+then hands them to the chat model with instructions to answer only from that context and
+to say so when the context falls short.
+
+Retrieval reserves half the results for each chunk kind rather than ranking purely by
+similarity. File chunks carry a summary plus a full declaration list plus metrics, so
+they average about 600 characters against roughly 370 for function chunks. That breadth
+makes them score moderately well against almost anything, and on a global ranking they
+crowd out the shorter function chunks that hold the specific answer. Each kind gets
+floor(k/2) seats; leftover seats go to the best unclaimed chunks of either kind, which
+keeps it sensible when one kind is scarce or k is 1.
+
+This is a variance reducer, not a strict improvement, and it cuts both ways. Asked how a
+file's importance score is calculated, a global ranking returned eight chunks of which
+only two were functions, and `pagerankScores` and `normalizeChurn` both missed the cut;
+balancing promoted them and measurably improved the answer. Asked how import specifiers
+resolve, a global ranking returned six function chunks to two file chunks — function
+chunks genuinely deserved the space there, and balancing pulled them back to four.
+`--global-rank` turns the reservation off when that trade is the wrong one.
 
 The corpus is chunked at two granularities so retrieval can be specific: one chunk per
 file (path, summary, full declaration list, graph metrics) and one chunk per
@@ -220,7 +236,13 @@ remediation rather than throwing.
 - Summaries are only as good as the local model. The prompt sends the first 6000
   characters of a file, so a summary of a very large file describes its head, not its tail.
 - Retrieval searches summaries and declarations, not raw source. A question whose answer
-  lives in a function body that was never summarised will not find it.
+  lives in a function body that was never summarised will not find it, and no ranking
+  strategy can recover what the summaries do not say. The clearest example: the 70/30
+  importance blend lives in `buildGraph`'s body and a code comment, so asking how
+  importance is calculated retrieves the churn and PageRank pieces but never `buildGraph`
+  itself, whose chunk ranks 9th among function chunks for that query. Raising
+  `--summarize-top` widens what is answerable; surfacing this particular fact would need
+  source text in the chunks, not better ranking.
 - Embeddings need a model built for them. Asking a chat model to embed fails, because
   Ollama only starts embedding-capable runners for embedding models; `synapse index`
   detects this and names the fix.

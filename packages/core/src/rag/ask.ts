@@ -36,6 +36,12 @@ export interface AskOptions extends OllamaConfig {
   graph?: RepoGraph;
   embedModel?: string;
   topK?: number;
+  /**
+   * Rank purely by similarity instead of reserving seats per chunk kind. Off by
+   * default: a global ranking lets the longer file chunks crowd out the function
+   * chunks that usually hold the specific answer.
+   */
+  globalRank?: boolean;
   embedBackend?: EmbeddingBackend;
   chatBackend?: ChatBackend;
   onProgress?: (message: string) => void;
@@ -149,7 +155,7 @@ export async function ask(question: string, options: AskOptions): Promise<AskRes
 
   let hits: SearchHit[];
   try {
-    hits = store.search(queryVector, topK);
+    hits = store.search(queryVector, topK, { balanceKinds: options.globalRank !== true });
   } catch (error) {
     // Dimension mismatch: the index was built with a different embedding model.
     return fail(error instanceof Error ? error.message : String(error));

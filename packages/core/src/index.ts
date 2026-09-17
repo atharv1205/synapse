@@ -40,6 +40,7 @@ export {
   type Chunk,
   type StoredChunk,
   type SearchHit,
+  type SearchOptions,
   type VectorStore,
   type EmbeddingBackend,
   type ChatBackend,

@@ -17,6 +17,19 @@ export interface SearchHit {
   score: number;
 }
 
+export interface SearchOptions {
+  /**
+   * Reserve half the results for each chunk kind.
+   *
+   * File chunks carry a path, a summary, a full declaration list and graph metrics, so
+   * they average noticeably more text than function chunks. That breadth makes them
+   * score moderately well against almost any query, and on a purely global ranking they
+   * crowd out the shorter function chunks that hold the specific answer. Reserving
+   * seats per kind keeps fine-grained chunks in the results.
+   */
+  balanceKinds?: boolean;
+}
+
 /**
  * The contract the RAG pass depends on. Brute-force cosine is the only implementation
  * today; an ANN-backed store would slot in here without touching anything upstream.
@@ -28,8 +41,13 @@ export interface VectorStore {
   reusable(chunk: Chunk, model: string): Float32Array | undefined;
   /** Replaces the contents wholesale with this set. */
   replace(entries: Array<{ chunk: StoredChunk; vector: Float32Array }>): void;
-  search(query: Float32Array, k: number): SearchHit[];
+  search(query: Float32Array, k: number, options?: SearchOptions): SearchHit[];
   save(): Promise<void>;
+}
+
+/** Most similar first, with file importance breaking exact ties. */
+function byRelevance(a: SearchHit, b: SearchHit): number {
+  return b.score - a.score || b.chunk.importance - a.chunk.importance;
 }
 
 /** Scales a vector to unit length so a dot product is cosine similarity. */
@@ -132,8 +150,12 @@ export class BruteForceStore implements VectorStore {
   /**
    * Exhaustive cosine search. Vectors are stored unit-length, so the dot product is
    * the similarity and no per-comparison normalisation is needed.
+   *
+   * With `balanceKinds`, each kind is guaranteed floor(k/2) seats and any remaining
+   * seats go to the best unclaimed chunks regardless of kind. That keeps the behaviour
+   * sensible when one kind is scarce, or when k is odd or 1.
    */
-  search(query: Float32Array, k: number): SearchHit[] {
+  search(query: Float32Array, k: number, options: SearchOptions = {}): SearchHit[] {
     if (this.chunks.length === 0 || this.dimension === 0) return [];
     if (query.length !== this.dimension) {
       throw new Error(
@@ -150,8 +172,34 @@ export class BruteForceStore implements VectorStore {
       scored.push({ chunk: this.chunks[i]!, score: dot });
     }
 
-    scored.sort((a, b) => b.score - a.score || b.chunk.importance - a.chunk.importance);
-    return scored.slice(0, Math.max(0, k));
+    scored.sort(byRelevance);
+
+    const limit = Math.max(0, k);
+    if (!options.balanceKinds) return scored.slice(0, limit);
+
+    const perKind = Math.floor(limit / 2);
+    const claimed = new Set<number>();
+    const picked: SearchHit[] = [];
+
+    for (const kind of ["file", "function"] as const) {
+      let count = 0;
+      for (let i = 0; i < scored.length && count < perKind; i++) {
+        if (claimed.has(i) || scored[i]!.chunk.kind !== kind) continue;
+        claimed.add(i);
+        picked.push(scored[i]!);
+        count++;
+      }
+    }
+
+    // Whatever is left over goes to the best chunks still unclaimed, whatever their kind.
+    for (let i = 0; i < scored.length && picked.length < limit; i++) {
+      if (claimed.has(i)) continue;
+      claimed.add(i);
+      picked.push(scored[i]!);
+    }
+
+    picked.sort(byRelevance);
+    return picked;
   }
 
   async save(): Promise<void> {

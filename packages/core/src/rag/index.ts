@@ -11,6 +11,7 @@ export {
   VECTORS_FILENAME,
   type VectorStore,
   type SearchHit,
+  type SearchOptions,
   type StoredChunk,
 } from "./store.js";
 export {

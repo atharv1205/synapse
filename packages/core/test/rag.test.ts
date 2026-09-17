@@ -274,6 +274,129 @@ describe("BruteForceStore", () => {
   });
 });
 
+describe("balanced retrieval", () => {
+  const dir = "/unused";
+
+  /** File chunks deliberately score higher than function chunks on the query. */
+  const build = () => {
+    const store = BruteForceStore.empty(dir, "fake-embed");
+    const entries: Array<{ chunk: StoredChunk; vector: Float32Array }> = [];
+
+    // Five file chunks that all match "registry" strongly.
+    for (let i = 0; i < 5; i++) {
+      entries.push({
+        chunk: {
+          id: `file:f${i}.ts`,
+          kind: "file",
+          path: `f${i}.ts`,
+          importance: 1 - i / 100,
+          text: "registry registry registry",
+          hash: `hf${i}`,
+          model: "fake-embed",
+        },
+        vector: normalizeVector(fakeVector("registry registry registry")),
+      });
+    }
+
+    // Five function chunks that match the same query less strongly.
+    for (let i = 0; i < 5; i++) {
+      entries.push({
+        chunk: {
+          id: `fn:f${i}.ts#fn${i}`,
+          kind: "function",
+          path: `f${i}.ts`,
+          ref: `fn${i}`,
+          importance: 0.5 - i / 100,
+          text: "registry helper double",
+          hash: `hn${i}`,
+          model: "fake-embed",
+        },
+        vector: normalizeVector(fakeVector("registry helper double")),
+      });
+    }
+
+    store.replace(entries);
+    return store;
+  };
+
+  const query = () => normalizeVector(fakeVector("registry registry registry"));
+
+  it("lets long file chunks monopolise the results when ranking globally", () => {
+    const hits = build().search(query(), 4, { balanceKinds: false });
+    assert.ok(
+      hits.every((h) => h.chunk.kind === "file"),
+      "this is the failure mode the balance exists to fix",
+    );
+  });
+
+  it("reserves half the seats for each kind", () => {
+    const hits = build().search(query(), 4, { balanceKinds: true });
+    assert.equal(hits.filter((h) => h.chunk.kind === "file").length, 2);
+    assert.equal(hits.filter((h) => h.chunk.kind === "function").length, 2);
+  });
+
+  it("still returns the best chunks within each kind", () => {
+    const hits = build().search(query(), 4, { balanceKinds: true });
+    const files = hits.filter((h) => h.chunk.kind === "file");
+    // Scores tie, so importance breaks it: f0 and f1 are the most important files.
+    assert.deepEqual(files.map((h) => h.chunk.path), ["f0.ts", "f1.ts"]);
+  });
+
+  it("orders the merged result by relevance, not by kind", () => {
+    const hits = build().search(query(), 6, { balanceKinds: true });
+    for (let i = 1; i < hits.length; i++) {
+      assert.ok(hits[i - 1]!.score >= hits[i]!.score, "results must stay sorted by score");
+    }
+  });
+
+  it("gives an odd seat to the best remaining chunk of either kind", () => {
+    const hits = build().search(query(), 5, { balanceKinds: true });
+    assert.equal(hits.length, 5);
+    // floor(5/2) = 2 each, and the spare goes to the higher-scoring kind.
+    assert.equal(hits.filter((h) => h.chunk.kind === "file").length, 3);
+  });
+
+  it("backfills from the other kind when one kind is scarce", () => {
+    const store = BruteForceStore.empty(dir, "fake-embed");
+    store.replace([
+      {
+        chunk: {
+          id: "file:only.ts",
+          kind: "file",
+          path: "only.ts",
+          importance: 1,
+          text: "registry",
+          hash: "h1",
+          model: "fake-embed",
+        },
+        vector: normalizeVector(fakeVector("registry")),
+      },
+      {
+        chunk: {
+          id: "file:second.ts",
+          kind: "file",
+          path: "second.ts",
+          importance: 0.9,
+          text: "registry helper",
+          hash: "h2",
+          model: "fake-embed",
+        },
+        vector: normalizeVector(fakeVector("registry helper")),
+      },
+    ]);
+
+    // No function chunks exist, so the file chunks must fill every seat.
+    const hits = store.search(query(), 2, { balanceKinds: true });
+    assert.equal(hits.length, 2);
+  });
+
+  it("falls back to the global best when there is only one seat", () => {
+    const hits = build().search(query(), 1, { balanceKinds: true });
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0]?.chunk.kind, "file", "the single seat goes to the best match overall");
+  });
+});
+
 describe("buildIndex", () => {
   let fixture: Fixture;
   let graph: RepoGraph;
@@ -611,6 +734,46 @@ describe("ask", () => {
 
     assert.equal(result.ok, false);
     assert.match(result.message ?? "", /synapse index/);
+  });
+
+  it("balances kinds by default, so function chunks are not crowded out", async () => {
+    const result = await ask("registry", {
+      root: fixture.root,
+      graph,
+      cacheDir,
+      embedBackend: new FakeEmbedder(),
+      chatBackend: new FakeChat(),
+      topK: 4,
+    });
+
+    assert.ok(
+      result.sources.some((s) => s.kind === "function"),
+      `expected a function chunk in ${JSON.stringify(result.sources)}`,
+    );
+  });
+
+  it("ranks purely by similarity when globalRank is set", async () => {
+    const balanced = await ask("registry", {
+      root: fixture.root,
+      graph,
+      cacheDir,
+      embedBackend: new FakeEmbedder(),
+      chatBackend: new FakeChat(),
+      topK: 4,
+    });
+
+    const global = await ask("registry", {
+      root: fixture.root,
+      graph,
+      cacheDir,
+      embedBackend: new FakeEmbedder(),
+      chatBackend: new FakeChat(),
+      topK: 4,
+      globalRank: true,
+    });
+
+    const kinds = (r: typeof balanced) => r.sources.map((s) => s.kind).join(",");
+    assert.notEqual(kinds(balanced), kinds(global), "the two strategies should differ here");
   });
 
   it("loads the store from disk, not from memory", async () => {
