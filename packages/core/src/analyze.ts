@@ -6,6 +6,7 @@ import { parseFile, type ParsedFile } from "./parse/extract.js";
 import { buildGraph } from "./graph/build.js";
 import { measureChurn } from "./graph/churn.js";
 import type { ScoreWeights } from "./graph/score.js";
+import { summarizeGraph, type SummarizerBackend } from "./summarize/index.js";
 import type { RepoGraph } from "./types.js";
 
 export interface AnalyzeOptions {
@@ -15,6 +16,21 @@ export interface AnalyzeOptions {
   weights?: ScoreWeights;
   /** Skip the git history pass. */
   skipChurn?: boolean;
+  /** Skip the LLM summarisation pass entirely. */
+  skipSummarize?: boolean;
+  /** Ollama model to summarise with. */
+  model?: string;
+  /** Ollama base URL, if not the local default. */
+  ollamaUrl?: string;
+  /** How many of the most important files to summarise. */
+  summarizeTop?: number;
+  /**
+   * Where summaries.json is read and written. Summarisation is skipped when this is
+   * absent, because there would be nowhere to cache results.
+   */
+  cacheDir?: string;
+  /** Injected in tests so the suite never reaches a real model. */
+  summarizeBackend?: SummarizerBackend;
   onProgress?: (message: string) => void;
 }
 
@@ -57,7 +73,7 @@ export async function analyze(target: string, options: AnalyzeOptions = {}): Pro
       weights: options.weights,
     });
 
-    return {
+    const graph: RepoGraph = {
       version: 1,
       source: source.source,
       generatedAt: new Date().toISOString(),
@@ -67,6 +83,23 @@ export async function analyze(target: string, options: AnalyzeOptions = {}): Pro
       functionNodes: result.functionNodes,
       functionEdges: result.functionEdges,
     };
+
+    // Summarisation mutates the graph in place, so it must run before the caller writes
+    // it out — and while the clone still exists, since it reads the files from disk.
+    if (!options.skipSummarize && options.cacheDir) {
+      onProgress("Summarising …");
+      graph.summarization = await summarizeGraph(graph, {
+        root: source.root,
+        cacheDir: options.cacheDir,
+        topN: options.summarizeTop,
+        model: options.model,
+        baseUrl: options.ollamaUrl,
+        backend: options.summarizeBackend,
+        onProgress,
+      });
+    }
+
+    return graph;
   } finally {
     await source.cleanup();
   }

@@ -1,5 +1,5 @@
 {
-  "name": "@repograph/web",
+  "name": "@synapse/web",
   "version": "0.1.0",
   "private": true,
   "description": "Placeholder for the React + react-three-fiber 3D graph viewer (Phase 3).",

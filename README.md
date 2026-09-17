@@ -1,10 +1,9 @@
-# repograph
+# Synapse
 
 Analyses a codebase — from a GitHub URL or a local folder — and produces a dependency
 graph of its files and functions, scored by how important each one is.
 
-**Status: Phase 0 and Phase 1 complete.** The LLM summaries, RAG Q&A and 3D viewer are
-not built yet.
+**Status: Phases 0-2 complete.** The RAG Q&A interface and the 3D viewer are not built yet.
 
 ## Quick start
 
@@ -31,13 +30,19 @@ node packages/cli/dist/src/index.js analyze https://github.com/pallets/itsdanger
 ## CLI
 
 ```
-repograph analyze <path-or-github-url> [options]
+synapse analyze <path-or-github-url> [options]
 
-  --out <dir>       Where to write graph.json (default: <target>/.repograph)
-  --depth <n>       Clone depth when given a URL (default: 200)
-  --top <n>         How many files to list in the summary (default: 10)
-  --skip-churn      Skip the git history pass
-  --json            Print the graph to stdout instead of writing a file
+  --out <dir>            Where to write graph.json (default: <target>/.synapse)
+  --depth <n>            Clone depth when given a URL (default: 200)
+  --top <n>              How many files to list in the summary (default: 10)
+  --skip-churn           Skip the git history pass
+
+  --skip-summarize       Skip LLM summarisation entirely
+  --model <name>         Ollama model (default: qwen2.5:14b-instruct)
+  --summarize-top <n>    How many top files to summarise (default: 50)
+  --ollama-url <url>     Ollama base URL (default: http://localhost:11434)
+
+  --json                 Print the graph to stdout instead of writing a file
 ```
 
 A URL is cloned shallowly into a temp directory and removed when the run finishes.
@@ -77,9 +82,27 @@ calls, and PageRank over it scores each function. Call resolution is a heuristic
 is matched against declarations in the same file first, then against the file a name was
 imported from. Calls it cannot resolve are dropped rather than guessed at.
 
+**Summarisation.** A local model via Ollama writes a 1-3 sentence summary for each of the
+top `--summarize-top` files, plus one sentence for each file's three most-called
+functions. Only the top files are summarised, because this is the slow step and most of a
+repo is not worth the tokens.
+
+Each prompt carries the file's path, the graph metrics that made it significant (in/out
+degree, churn, size), its declaration list with real signatures, and the first 6000
+characters of source. One structured-output request per file returns the file summary and
+its function summaries together. Function names the file does not actually declare are
+dropped, so a hallucinated name cannot reach the graph.
+
+Results are cached in `.synapse/summaries.json`, keyed by a SHA-256 of the file's path and
+contents and tagged with the model and prompt version. A re-run only calls the model for
+files that actually changed — on this repo a fully cached re-run takes under half a second.
+
+If Ollama is not running or the model is not pulled, the run reports exactly how to fix it
+and continues without summaries. It never takes down the analysis.
+
 ## Output
 
-Written to `.repograph/graph.json`:
+Written to `.synapse/graph.json`:
 
 ```jsonc
 {
@@ -96,15 +119,19 @@ Written to `.repograph/graph.json`:
       "importance": 0.85,
       "metrics": { "loc": 102, "churn": 3, "inDegree": 7, "outDegree": 0,
                    "centrality": 1, "churnScore": 0.5 },
+      "summary": "Defines the shared helpers the rest of the package builds on.",
       "functions": [ { "id": "src/hub.ts#sharedHelper", "name": "sharedHelper",
                        "kind": "function", "startLine": 1, "endLine": 3,
-                       "exported": true, "importance": 1 } ]
+                       "exported": true, "importance": 1,
+                       "summary": "Doubles the value it is given." } ]
     }
   ],
   "edges": [ { "from": "src/app.ts", "to": "src/hub.ts", "type": "import", "weight": 1 } ],
   "functionNodes": [ … ],
   "functionEdges": [ { "from": "src/util.ts#double", "to": "src/hub.ts#sharedHelper",
-                       "type": "call", "weight": 1 } ]
+                       "type": "call", "weight": 1 } ],
+  "summarization": { "ran": true, "model": "qwen2.5:14b-instruct", "selected": 50,
+                     "fromCache": 47, "generated": 3, "failed": 0 }
 }
 ```
 
@@ -119,6 +146,11 @@ commit distribution, then runs the actual walker, parser and `git log` against i
 mocks. Asserts that the hub file outranks the orphan, that churn breaks ties between files
 of equal centrality, and that the awkward resolution cases above all land.
 
+Summarisation is tested against a fake backend that records prompts and returns canned
+responses, so the suite never starts a model or touches the network. It covers the cache
+round-trip, that a changed file re-summarises while its unchanged neighbours do not, that
+preflight failures degrade gracefully, and that hallucinated function names are dropped.
+
 ## Known limits
 
 - `git log --follow` only accepts one path at a time, so churn is one git process per file.
@@ -126,3 +158,5 @@ of equal centrality, and that the awkward resolution cases above all land.
 - Call-graph resolution is name-based, not scope-aware. Two same-named functions in one
   file collapse to the first; dynamic dispatch and re-exported names are not traced.
 - Only JS/TS/TSX and Python are parsed. Other files are ignored entirely.
+- Summaries are only as good as the local model. The prompt sends the first 6000
+  characters of a file, so a summary of a very large file describes its head, not its tail.

@@ -47,7 +47,7 @@ export async function resolveSource(
     return { root, source: root, ephemeral: false, cleanup: async () => {} };
   }
 
-  const dir = await mkdtemp(path.join(tmpdir(), "repograph-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "synapse-"));
   onProgress?.(`Cloning ${input} …`);
 
   try {

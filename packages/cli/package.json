@@ -1,12 +1,12 @@
 {
-  "name": "@repograph/cli",
+  "name": "@synapse/cli",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
-    "repograph": "./dist/src/index.js"
+    "synapse": "./dist/src/index.js"
   },
   "dependencies": {
-    "@repograph/core": "*"
+    "@synapse/core": "*"
   }
 }

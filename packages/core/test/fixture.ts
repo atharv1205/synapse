@@ -122,7 +122,7 @@ def run(values):
 };
 
 export async function createFixture(): Promise<Fixture> {
-  const root = await mkdtemp(path.join(tmpdir(), "repograph-fixture-"));
+  const root = await mkdtemp(path.join(tmpdir(), "synapse-fixture-"));
 
   for (const [relPath, contents] of Object.entries(FILES)) {
     const abs = path.join(root, relPath);
