@@ -14,6 +14,7 @@ import {
   DEFAULT_TOP_K,
   type RepoGraph,
 } from "@synapse/core";
+import { serve } from "./serve.js";
 
 const USAGE = `synapse — map a codebase's structure, importance and meaning
 
@@ -21,6 +22,7 @@ Usage:
   synapse analyze <path-or-github-url> [options]   Build the graph
   synapse index [path] [options]                   Build/refresh the embedding index
   synapse ask "<question>" [options]               Ask a question about the codebase
+  synapse serve [path] [options]                   Serve the 3D UI and API
 
 analyze:
   --out <dir>            Where to write graph.json (default: <target>/.synapse)
@@ -40,6 +42,13 @@ ask:
   --show-sources         List the files and functions the answer drew on
   --global-rank          Rank purely by similarity, without reserving seats per
                          chunk kind (file vs function). Off by default.
+
+serve:
+  --path <dir>           Repo root (default: .)
+  --port <n>             Port to listen on (default: 4317)
+  --host <addr>          Address to bind (default: 127.0.0.1)
+  --no-open              Do not open a browser window
+  --skip-summarize       Skip summarisation if a graph has to be built first
 
 Shared:
   --out <dir>            Where .synapse artefacts live (default: <path>/.synapse)
@@ -274,6 +283,9 @@ async function main(): Promise<void> {
       "top-k": { type: "string" },
       "show-sources": { type: "boolean" },
       "global-rank": { type: "boolean" },
+      port: { type: "string" },
+      host: { type: "string" },
+      "no-open": { type: "boolean" },
       "ollama-url": { type: "string" },
       json: { type: "boolean" },
       help: { type: "boolean", short: "h" },
@@ -299,6 +311,24 @@ async function main(): Promise<void> {
     case "index":
       if (argument) values.path = values.path ?? argument;
       return runIndex(values);
+
+    case "serve": {
+      if (argument) values.path = values.path ?? argument;
+      const root = path.resolve(typeof values.path === "string" ? values.path : ".");
+      const ollama = ollamaOptions(values);
+      return serve({
+        root,
+        cacheDir: resolveOutDir(root, values.out),
+        port: values.port ? Number(values.port) : 4317,
+        host: typeof values.host === "string" ? values.host : "127.0.0.1",
+        model: ollama.model,
+        embedModel: ollama.embedModel,
+        ollamaUrl: ollama.baseUrl,
+        skipSummarize: values["skip-summarize"] === true,
+        summarizeTop: values["summarize-top"] ? Number(values["summarize-top"]) : undefined,
+        noOpen: values["no-open"] === true,
+      });
+    }
 
     case "ask":
       if (!argument) {

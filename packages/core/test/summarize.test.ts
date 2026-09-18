@@ -91,8 +91,11 @@ describe("OllamaClient preflight", () => {
       async () => {
         const result = await new OllamaClient({ baseUrl: "http://localhost:1" }).preflight();
         assert.equal(result.ok, false);
-        assert.match(result.ok === false ? result.message : "", /ollama serve/);
-        assert.match(result.ok === false ? result.message : "", /--skip-summarize/);
+        const message = result.ok === false ? result.message : "";
+        assert.match(message, /ollama serve/);
+        // preflight is shared with the RAG and server paths, so it must stay generic;
+        // the --skip-summarize hint is the summarising caller's to add.
+        assert.doesNotMatch(message, /--skip-summarize/);
       },
     );
   });
@@ -411,6 +414,7 @@ describe("summarizeGraph — against a fake model", () => {
 
     assert.equal(report.ran, false);
     assert.match(report.message ?? "", /ollama serve/);
+    assert.match(report.message ?? "", /--skip-summarize/, "the summarising caller adds its own opt-out hint");
     assert.equal(backend.calls, 0);
     assert.ok(!graph.nodes.some((n) => n.summary), "no summaries should be attached");
   });

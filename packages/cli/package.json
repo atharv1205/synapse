@@ -7,6 +7,7 @@
     "synapse": "./dist/src/index.js"
   },
   "dependencies": {
-    "@synapse/core": "*"
+    "@synapse/core": "*",
+    "@synapse/server": "*"
   }
 }

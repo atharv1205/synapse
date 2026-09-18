@@ -74,8 +74,7 @@ export class OllamaClient {
         ok: false,
         message:
           `Could not reach Ollama at ${this.baseUrl} (${reason}).\n` +
-          `  Start it with:  ollama serve\n` +
-          `  Or re-run with --skip-summarize to analyse without summaries.`,
+          `  Start it with:  ollama serve`,
       };
     }
 

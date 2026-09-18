@@ -2,8 +2,27 @@
   "name": "@synapse/web",
   "version": "0.1.0",
   "private": true,
-  "description": "Placeholder for the React + react-three-fiber 3D graph viewer (Phase 3).",
+  "type": "module",
+  "description": "3D graph viewer and Q&A UI for Synapse.",
   "scripts": {
-    "dev": "echo 'web package not implemented yet' && exit 1"
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.114.0",
+    "@react-three/fiber": "^8.17.0",
+    "d3-force-3d": "^3.0.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@synapse/core": "*",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@types/three": "^0.169.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "vite": "^8.3.0"
   }
 }

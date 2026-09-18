@@ -3,7 +3,7 @@
 Analyses a codebase — from a GitHub URL or a local folder — and produces a dependency
 graph of its files and functions, scored by how important each one is.
 
-**Status: Phases 0-3 complete.** The 3D viewer is not built yet.
+**Status: Phases 0-4 complete.**
 
 ## Quick start
 
@@ -26,13 +26,21 @@ ollama pull nomic-embed-text
 node packages/cli/dist/src/index.js ask "what does the import resolver handle?" --show-sources
 ```
 
+Or explore it in 3D:
+
+```bash
+npm run build:all
+node packages/cli/dist/src/index.js serve .
+```
+
 ## Layout
 
 | Package | What it is |
 | --- | --- |
 | `packages/core` | The analysis engine: ingestion, parsing, graph building, scoring |
 | `packages/cli` | The `analyze` command |
-| `packages/web` | Placeholder for the 3D viewer (Phase 3) |
+| `packages/server` | Fastify API wrapping the core functions |
+| `packages/web` | React + react-three-fiber 3D viewer and Q&A UI |
 
 ## CLI
 
@@ -62,6 +70,11 @@ synapse ask "<question>" [options]
   --path <dir>           Repo root (default: .)
   --top-k <n>            How many chunks to retrieve (default: 8)
   --show-sources         List the files and functions the answer drew on
+
+synapse serve [path] [options]
+  --port <n>             Port to listen on (default: 4317)
+  --host <addr>          Address to bind (default: 127.0.0.1)
+  --no-open              Do not open a browser window
 
 Shared by all three:
   --out <dir>            Where .synapse artefacts live
@@ -168,6 +181,44 @@ Vectors are stored unit-length in `.synapse/embeddings.bin` with metadata in
 `.synapse/embeddings.json`, so a dot product *is* the cosine similarity and no
 per-comparison normalisation is needed.
 
+## The UI
+
+`synapse serve` runs an analysis if there is no graph yet, then serves a Fastify API and
+the built React app. The server is deliberately thin — four routes, each of which reads a
+file or calls one core function and serialises the result:
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/graph` | Returns `graph.json` |
+| `POST /api/ask` | Calls `ask()`, returns the answer and its sources |
+| `POST /api/index` | Calls `buildIndex()`, returns the report |
+| `GET /api/status` | Reports Ollama, model, graph and index availability |
+
+No scoring, chunking, retrieval or remediation logic lives in the server. `/api/status` is
+just core's preflight output, so the remediation the browser shows is the same text the
+CLI prints rather than a second set of wordings to keep in step. When Ollama is down the
+graph still renders and stays fully explorable; only questions are disabled.
+
+**Rendering.** Every node is one instance of a single `InstancedMesh` and every edge is one
+segment of a single `LineSegments` buffer, so the whole graph is two draw calls whatever
+its size. That matters more than node count: a few thousand individual meshes would each
+cost a draw call and tank the framerate long before the data became the problem. The
+importance slider therefore fades and shrinks nodes rather than unmounting them, which
+keeps every file clickable and keeps Q&A sources linkable even when dimmed. Above ~300
+files the view opens with the threshold pre-set so it starts on the important files.
+
+Nodes are sized and coloured by the importance already in `graph.json` — nothing is
+recomputed client-side. Edge direction is shown by a per-vertex colour gradient, dim at
+the importer and bright at the imported file; arrowheads at this density would be noise.
+
+The force layout runs to completion before the first frame rather than animating.
+`d3-force-3d` runs on the main thread, so animating it on a few thousand nodes janks
+badly, and a settling graph is harder to read than a settled one.
+
+Clicking a node opens its path, summary, metrics and top functions, with a button that
+pre-fills a question about it. The Q&A panel is always available; clicking a cited source
+selects and flies the camera to that node.
+
 ## Output
 
 Written to `.synapse/graph.json`:
@@ -233,6 +284,8 @@ remediation rather than throwing.
 - Call-graph resolution is name-based, not scope-aware. Two same-named functions in one
   file collapse to the first; dynamic dispatch and re-exported names are not traced.
 - Only JS/TS/TSX and Python are parsed. Other files are ignored entirely.
+- The UI bundles three.js, so the client build is around 1MB (275KB gzipped). That is
+  fine over localhost and has not been optimised further.
 - Summaries are only as good as the local model. The prompt sends the first 6000
   characters of a file, so a summary of a very large file describes its head, not its tail.
 - Retrieval searches summaries and declarations, not raw source. A question whose answer
