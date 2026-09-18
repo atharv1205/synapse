@@ -7,7 +7,7 @@ import { buildChunks, chunkHash } from "../src/rag/chunk.js";
 import { buildIndex, loadIndex, type EmbeddingBackend } from "../src/rag/index.js";
 import { ask, buildAnswerPrompt, type ChatBackend } from "../src/rag/ask.js";
 import { BruteForceStore, normalizeVector, type StoredChunk } from "../src/rag/store.js";
-import type { Preflight } from "../src/summarize/ollama.js";
+import type { Preflight } from "../src/llm/ollama.js";
 import type { RepoGraph } from "../src/types.js";
 import { createFixture, type Fixture } from "./fixture.js";
 

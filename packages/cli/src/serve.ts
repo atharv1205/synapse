@@ -2,7 +2,7 @@ import { access } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { analyze, writeGraph } from "@synapse/core";
+import { analyze, writeGraph, type ProviderName } from "@synapse/core";
 import { createServer, type AnalysisState } from "@synapse/server";
 
 export interface ServeOptions {
@@ -10,6 +10,7 @@ export interface ServeOptions {
   cacheDir: string;
   port: number;
   host: string;
+  provider?: ProviderName;
   model?: string;
   embedModel?: string;
   ollamaUrl?: string;
@@ -76,6 +77,7 @@ export async function serve(options: ServeOptions): Promise<void> {
     root: options.root,
     cacheDir: options.cacheDir,
     webDist,
+    provider: options.provider,
     model: options.model,
     embedModel: options.embedModel,
     ollamaUrl: options.ollamaUrl,
@@ -103,6 +105,7 @@ export async function serve(options: ServeOptions): Promise<void> {
       try {
         const graph = await analyze(options.root, {
           cacheDir: options.cacheDir,
+          provider: options.provider,
           model: options.model,
           ollamaUrl: options.ollamaUrl,
           skipSummarize: options.skipSummarize,

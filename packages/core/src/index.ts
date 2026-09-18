@@ -50,4 +50,25 @@ export {
   type AskResult,
   type Source,
 } from "./rag/index.js";
-export { DEFAULT_EMBED_MODEL } from "./summarize/ollama.js";
+export { DEFAULT_EMBED_MODEL } from "./llm/ollama.js";
+export {
+  createProviders,
+  createChatProvider,
+  createEmbeddingProvider,
+  defaultModelFor,
+  type ProviderOptions,
+  type ProviderPair,
+} from "./llm/provider.js";
+export {
+  AnthropicClient,
+  DEFAULT_ANTHROPIC_MODEL,
+  API_KEY_ENV,
+  type AnthropicConfig,
+} from "./llm/anthropic.js";
+export {
+  EmbeddingsUnsupportedError,
+  type LlmProvider,
+  type ProviderName,
+  type Preflight,
+  type JsonSchema,
+} from "./llm/types.js";

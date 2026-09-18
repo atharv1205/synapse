@@ -1,21 +1,21 @@
-import {
-  DEFAULT_EMBED_MODEL,
-  DEFAULT_MODEL,
-  OllamaClient,
-  type OllamaConfig,
-  type Preflight,
-} from "../summarize/ollama.js";
+import { DEFAULT_EMBED_MODEL } from "../llm/ollama.js";
+import { createProviders, type ProviderOptions } from "../llm/provider.js";
+import type { Preflight } from "../llm/types.js";
 import type { RepoGraph } from "../types.js";
 import { buildIndex, loadIndex, type EmbeddingBackend } from "./index.js";
 import { normalizeVector, type SearchHit } from "./store.js";
 
 export const DEFAULT_TOP_K = 8;
 
-/** The slice of OllamaClient answering needs, so tests can substitute a fake. */
+/**
+ * The slice of LlmProvider that answering needs. Narrower than the full interface on
+ * purpose: any provider satisfies it, and a test fake only has to implement three
+ * methods instead of the whole surface.
+ */
 export interface ChatBackend {
   readonly model: string;
   preflight(model?: string): Promise<Preflight>;
-  generateText(prompt: string, options?: { numPredict?: number }): Promise<string>;
+  generateText(prompt: string, options?: { maxTokens?: number }): Promise<string>;
 }
 
 /** A chunk the answer drew on, for --show-sources. */
@@ -27,7 +27,7 @@ export interface Source {
   score: number;
 }
 
-export interface AskOptions extends OllamaConfig {
+export interface AskOptions extends ProviderOptions {
   /** Where the index lives. */
   cacheDir: string;
   /** Repo root, needed only if the index has to be built on demand. */
@@ -54,6 +54,8 @@ export interface AskResult {
   sources: Source[];
   /** Set when the question could not be answered, with remediation. */
   message?: string;
+  /** Which backend produced the answer, and which produced the vectors. */
+  providers?: { chat: string; chatModel: string; embed: string; embedModel: string };
 }
 
 /**
@@ -101,9 +103,9 @@ export async function ask(question: string, options: AskOptions): Promise<AskRes
   const { cacheDir, topK = DEFAULT_TOP_K, onProgress = () => {} } = options;
   const embedModel = options.embedModel ?? DEFAULT_EMBED_MODEL;
 
-  const client = new OllamaClient(options);
-  const embedBackend: EmbeddingBackend = options.embedBackend ?? client;
-  const chatBackend: ChatBackend = options.chatBackend ?? client;
+  const providers = createProviders(options);
+  const embedBackend: EmbeddingBackend = options.embedBackend ?? providers.embed;
+  const chatBackend: ChatBackend = options.chatBackend ?? providers.chat;
 
   const fail = (message: string): AskResult => ({
     ok: false,
@@ -113,12 +115,22 @@ export async function ask(question: string, options: AskOptions): Promise<AskRes
     message,
   });
 
-  // Both models must be present; checking up front avoids embedding work that the
+  // Both backends must be ready; checking up front avoids embedding work that the
   // answering step would only throw away.
+  //
+  // When chat and embeddings come from different providers, an embedding failure is
+  // confusing on its own — the user asked for Anthropic and is being told about
+  // Ollama — so the reason the two differ is attached to the message.
   const embedReady = await embedBackend.preflight(embedModel);
-  if (!embedReady.ok) return fail(embedReady.message);
+  if (!embedReady.ok) {
+    return fail(
+      providers.embedNote
+        ? `${embedReady.message}\n\n  ${providers.embedNote}`
+        : embedReady.message,
+    );
+  }
 
-  const chatReady = await chatBackend.preflight(chatBackend.model ?? DEFAULT_MODEL);
+  const chatReady = await chatBackend.preflight(chatBackend.model);
   if (!chatReady.ok) return fail(chatReady.message);
 
   let store = await loadIndex(cacheDir, embedModel);
@@ -178,6 +190,12 @@ export async function ask(question: string, options: AskOptions): Promise<AskRes
     ok: true,
     question,
     answer,
+    providers: {
+      chat: providers.chat.name,
+      chatModel: chatBackend.model,
+      embed: providers.embed.name,
+      embedModel,
+    },
     sources: hits.map((hit) => ({
       kind: hit.chunk.kind,
       path: hit.chunk.path,

@@ -2,7 +2,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { FileNode, RepoGraph, SummarizationReport } from "../types.js";
 import { SummaryCache, contentHash, type CachedSummary } from "./cache.js";
-import { DEFAULT_MODEL, OllamaClient, type OllamaConfig } from "./ollama.js";
+import { DEFAULT_MODEL } from "../llm/ollama.js";
+import { createChatProvider, type ProviderOptions } from "../llm/provider.js";
 import {
   PROMPT_VERSION,
   SUMMARY_SCHEMA,
@@ -13,11 +14,16 @@ import {
   type SummaryResponse,
 } from "./prompt.js";
 
-export { OllamaClient, DEFAULT_MODEL, DEFAULT_OLLAMA_URL } from "./ollama.js";
+export { OllamaClient, DEFAULT_MODEL, DEFAULT_OLLAMA_URL } from "../llm/ollama.js";
+export { createChatProvider } from "../llm/provider.js";
 export { SummaryCache, contentHash, CACHE_FILENAME } from "./cache.js";
 export { PROMPT_VERSION, MAX_SOURCE_CHARS, buildFilePrompt, truncateSource } from "./prompt.js";
 
-/** The subset of OllamaClient summarisation needs, so tests can substitute a fake. */
+/**
+ * The slice of LlmProvider that summarisation needs. Both OllamaClient and
+ * AnthropicClient satisfy it, which is what lets the prompt-building code below stay
+ * identical no matter which provider is in use.
+ */
 export interface SummarizerBackend {
   readonly model: string;
   preflight(): Promise<{ ok: true } | { ok: false; message: string }>;
@@ -26,7 +32,7 @@ export interface SummarizerBackend {
 
 export const DEFAULT_SUMMARIZE_TOP = 50;
 
-export interface SummarizeOptions extends OllamaConfig {
+export interface SummarizeOptions extends ProviderOptions {
   /** Repo root, for reading file contents. */
   root: string;
   /** Where summaries.json lives. */
@@ -108,7 +114,7 @@ export async function summarizeGraph(
     onProgress = () => {},
   } = options;
 
-  const backend: SummarizerBackend = options.backend ?? new OllamaClient(options);
+  const backend: SummarizerBackend = options.backend ?? createChatProvider(options);
   const model = backend.model;
 
   const base: SummarizationReport = {

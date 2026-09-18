@@ -12,6 +12,9 @@ import {
   DEFAULT_MODEL,
   DEFAULT_SUMMARIZE_TOP,
   DEFAULT_TOP_K,
+  DEFAULT_ANTHROPIC_MODEL,
+  defaultModelFor,
+  type ProviderName,
   type RepoGraph,
 } from "@synapse/core";
 import { serve } from "./serve.js";
@@ -52,7 +55,13 @@ serve:
 
 Shared:
   --out <dir>            Where .synapse artefacts live (default: <path>/.synapse)
-  --model <name>         Chat model (default: ${DEFAULT_MODEL})
+  --provider <name>      ollama | anthropic  (default: ollama)
+                         Chooses what summarises and answers. Embeddings are always
+                         Ollama — the Anthropic API has no embeddings endpoint — so
+                         Ollama must be running for \`ask\` either way.
+                         anthropic reads ANTHROPIC_API_KEY from the environment only.
+  --model <name>         Chat model (default: ${DEFAULT_MODEL},
+                         or ${DEFAULT_ANTHROPIC_MODEL} with --provider anthropic)
   --embed-model <name>   Embedding model (default: ${DEFAULT_EMBED_MODEL})
   --ollama-url <url>     Ollama base URL (default: http://localhost:11434)
   -h, --help             Show this message
@@ -95,9 +104,20 @@ function resolveOutDir(target: string, out: unknown): string {
   return path.join(path.resolve(target), ".synapse");
 }
 
-function ollamaOptions(values: Record<string, unknown>) {
+/** Validates --provider and reports the allowed values rather than failing obscurely. */
+function providerFrom(values: Record<string, unknown>): ProviderName {
+  const raw = values.provider;
+  if (raw === undefined) return "ollama";
+  if (raw === "ollama" || raw === "anthropic") return raw;
+  console.error(`Unknown --provider "${String(raw)}". Use "ollama" or "anthropic".`);
+  process.exit(1);
+}
+
+function llmOptions(values: Record<string, unknown>) {
+  const provider = providerFrom(values);
   return {
-    model: typeof values.model === "string" ? values.model : undefined,
+    provider,
+    model: typeof values.model === "string" ? values.model : defaultModelFor(provider),
     embedModel: typeof values["embed-model"] === "string" ? values["embed-model"] : undefined,
     baseUrl: typeof values["ollama-url"] === "string" ? values["ollama-url"] : undefined,
   };
@@ -158,14 +178,15 @@ function printGraphSummary(graph: RepoGraph, top: number): void {
 
 async function runAnalyze(target: string, values: Record<string, unknown>): Promise<void> {
   const outDir = resolveOutDir(target, values.out);
-  const ollama = ollamaOptions(values);
+  const llm = llmOptions(values);
 
   const graph = await analyze(target, {
     depth: values.depth ? Number(values.depth) : undefined,
     skipChurn: values["skip-churn"] === true,
     skipSummarize: values["skip-summarize"] === true,
-    model: ollama.model,
-    ollamaUrl: ollama.baseUrl,
+    provider: llm.provider,
+    model: llm.model,
+    ollamaUrl: llm.baseUrl,
     summarizeTop: values["summarize-top"] ? Number(values["summarize-top"]) : undefined,
     cacheDir: outDir,
     onProgress: (message) => console.error(message),
@@ -199,15 +220,15 @@ async function loadGraph(outDir: string): Promise<RepoGraph> {
 async function runIndex(values: Record<string, unknown>): Promise<void> {
   const root = path.resolve(typeof values.path === "string" ? values.path : ".");
   const outDir = resolveOutDir(root, values.out);
-  const ollama = ollamaOptions(values);
+  const llm = llmOptions(values);
 
   const graph = await loadGraph(outDir);
 
   const report = await buildIndex(graph, {
     root,
     cacheDir: outDir,
-    embedModel: ollama.embedModel,
-    baseUrl: ollama.baseUrl,
+    embedModel: llm.embedModel,
+    baseUrl: llm.baseUrl,
     onProgress: (message) => console.error(message),
   });
 
@@ -228,7 +249,7 @@ async function runIndex(values: Record<string, unknown>): Promise<void> {
 async function runAsk(question: string, values: Record<string, unknown>): Promise<void> {
   const root = path.resolve(typeof values.path === "string" ? values.path : ".");
   const outDir = resolveOutDir(root, values.out);
-  const ollama = ollamaOptions(values);
+  const llm = llmOptions(values);
 
   // Loaded so a first `ask` can build its own index rather than demanding `index` first.
   const graph = await loadGraph(outDir);
@@ -239,9 +260,10 @@ async function runAsk(question: string, values: Record<string, unknown>): Promis
     cacheDir: outDir,
     topK: values["top-k"] ? Number(values["top-k"]) : undefined,
     globalRank: values["global-rank"] === true,
-    model: ollama.model,
-    embedModel: ollama.embedModel,
-    baseUrl: ollama.baseUrl,
+    provider: llm.provider,
+    model: llm.model,
+    embedModel: llm.embedModel,
+    baseUrl: llm.baseUrl,
     onProgress: (message) => console.error(message),
   });
 
@@ -278,6 +300,7 @@ async function main(): Promise<void> {
       "skip-churn": { type: "boolean" },
       "skip-summarize": { type: "boolean" },
       model: { type: "string" },
+      provider: { type: "string" },
       "embed-model": { type: "string" },
       "summarize-top": { type: "string" },
       "top-k": { type: "string" },
@@ -315,15 +338,16 @@ async function main(): Promise<void> {
     case "serve": {
       if (argument) values.path = values.path ?? argument;
       const root = path.resolve(typeof values.path === "string" ? values.path : ".");
-      const ollama = ollamaOptions(values);
+      const llm = llmOptions(values);
       return serve({
         root,
         cacheDir: resolveOutDir(root, values.out),
         port: values.port ? Number(values.port) : 4317,
         host: typeof values.host === "string" ? values.host : "127.0.0.1",
-        model: ollama.model,
-        embedModel: ollama.embedModel,
-        ollamaUrl: ollama.baseUrl,
+        provider: llm.provider,
+        model: llm.model,
+        embedModel: llm.embedModel,
+        ollamaUrl: llm.baseUrl,
         skipSummarize: values["skip-summarize"] === true,
         summarizeTop: values["summarize-top"] ? Number(values["summarize-top"]) : undefined,
         noOpen: values["no-open"] === true,

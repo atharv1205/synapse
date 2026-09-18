@@ -4,7 +4,7 @@ import path from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { analyze } from "../src/analyze.js";
 import { contentHash, SummaryCache } from "../src/summarize/cache.js";
-import { parseJsonLoosely, OllamaClient } from "../src/summarize/ollama.js";
+import { parseJsonLoosely, OllamaClient } from "../src/llm/ollama.js";
 import {
   buildFilePrompt,
   signatureOf,

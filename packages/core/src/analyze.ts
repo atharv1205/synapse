@@ -7,6 +7,7 @@ import { buildGraph } from "./graph/build.js";
 import { measureChurn } from "./graph/churn.js";
 import type { ScoreWeights } from "./graph/score.js";
 import { summarizeGraph, type SummarizerBackend } from "./summarize/index.js";
+import type { ProviderName } from "./llm/types.js";
 import type { RepoGraph } from "./types.js";
 
 export interface AnalyzeOptions {
@@ -18,7 +19,9 @@ export interface AnalyzeOptions {
   skipChurn?: boolean;
   /** Skip the LLM summarisation pass entirely. */
   skipSummarize?: boolean;
-  /** Ollama model to summarise with. */
+  /** Which backend summarises: the local Ollama model, or the Anthropic API. */
+  provider?: ProviderName;
+  /** Chat model. Defaults to the chosen provider's own default. */
   model?: string;
   /** Ollama base URL, if not the local default. */
   ollamaUrl?: string;
@@ -92,6 +95,7 @@ export async function analyze(target: string, options: AnalyzeOptions = {}): Pro
         root: source.root,
         cacheDir: options.cacheDir,
         topN: options.summarizeTop,
+        provider: options.provider,
         model: options.model,
         baseUrl: options.ollamaUrl,
         backend: options.summarizeBackend,

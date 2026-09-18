@@ -1,5 +1,5 @@
 import type { FileNode, FunctionSymbol } from "../types.js";
-import type { JsonSchema } from "./ollama.js";
+import type { JsonSchema } from "../llm/types.js";
 
 /**
  * Bump when the prompt or schema changes in a way that makes old summaries stale.

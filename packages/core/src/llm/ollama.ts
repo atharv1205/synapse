@@ -1,3 +1,4 @@
+import type { JsonSchema, LlmProvider, Preflight } from "./types.js";
 export const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 export const DEFAULT_MODEL = "qwen2.5:14b-instruct";
 export const DEFAULT_EMBED_MODEL = "nomic-embed-text";
@@ -9,11 +10,8 @@ export interface OllamaConfig {
   timeoutMs?: number;
 }
 
-/** The outcome of a preflight check: either we can summarise, or here is exactly why not. */
-export type Preflight = { ok: true } | { ok: false; message: string };
 
-/** A JSON Schema passed to Ollama's structured-output `format` field. */
-export type JsonSchema = Record<string, unknown>;
+export type { JsonSchema, Preflight } from "./types.js";
 
 interface GenerateResponse {
   response?: string;
@@ -25,10 +23,18 @@ interface GenerateResponse {
  * no dependency, and never throws for "Ollama isn't set up" — that is a Preflight
  * result the caller can report and continue past.
  */
-export class OllamaClient {
+export class OllamaClient implements LlmProvider {
+  readonly name = "ollama" as const;
   readonly baseUrl: string;
   readonly model: string;
+  /** Ollama serves embedding models, so this provider can do both halves. */
+  readonly supportsEmbeddings = true;
   private readonly timeoutMs: number;
+
+  /** Same as `baseUrl`; part of the LlmProvider surface. */
+  get endpoint(): string {
+    return this.baseUrl;
+  }
 
   constructor(config: OllamaConfig = {}) {
     this.baseUrl = (config.baseUrl ?? DEFAULT_OLLAMA_URL).replace(/\/+$/, "");
@@ -148,7 +154,7 @@ export class OllamaClient {
   }
 
   /** Runs one non-streaming generation and returns the raw text, for prose answers. */
-  async generateText(prompt: string, options: { numPredict?: number } = {}): Promise<string> {
+  async generateText(prompt: string, options: { maxTokens?: number } = {}): Promise<string> {
     const response = await fetch(`${this.baseUrl}/api/generate`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -156,7 +162,7 @@ export class OllamaClient {
         model: this.model,
         prompt,
         stream: false,
-        options: { temperature: 0.2, num_predict: options.numPredict ?? 800 },
+        options: { temperature: 0.2, num_predict: options.maxTokens ?? 800 },
       }),
       signal: AbortSignal.timeout(this.timeoutMs),
     });

@@ -3,7 +3,7 @@
 Analyses a codebase — from a GitHub URL or a local folder — and produces a dependency
 graph of its files and functions, scored by how important each one is.
 
-**Status: Phases 0-4 complete.**
+**Status: Phases 0-5a complete.**
 
 ## Quick start
 
@@ -37,7 +37,7 @@ node packages/cli/dist/src/index.js serve .
 
 | Package | What it is |
 | --- | --- |
-| `packages/core` | The analysis engine: ingestion, parsing, graph building, scoring |
+| `packages/core` | The analysis engine: ingestion, parsing, graph building, scoring, LLM providers |
 | `packages/cli` | The `analyze` command |
 | `packages/server` | Fastify API wrapping the core functions |
 | `packages/web` | React + react-three-fiber 3D viewer and Q&A UI |
@@ -79,6 +79,8 @@ synapse serve [path] [options]
 Shared by all three:
   --out <dir>            Where .synapse artefacts live
   --model <name>         Chat model (default: qwen2.5:14b-instruct)
+  --provider <name>      ollama | anthropic (default: ollama)
+  --model <name>         Chat model (provider-specific default)
   --embed-model <name>   Embedding model (default: nomic-embed-text)
   --ollama-url <url>     Ollama base URL (default: http://localhost:11434)
 ```
@@ -180,6 +182,38 @@ a contained change.
 Vectors are stored unit-length in `.synapse/embeddings.bin` with metadata in
 `.synapse/embeddings.json`, so a dot product *is* the cosine similarity and no
 per-comparison normalisation is needed.
+
+## Providers
+
+Summaries and answers can come from the local Ollama model or from the Anthropic API.
+`--provider anthropic` switches the backend on `analyze`, `ask` and `serve`; the default
+is `ollama` and nothing about the local path changes.
+
+Both clients implement one `LlmProvider` interface, and **the prompts are identical
+either way** — the summarisation prompt, its JSON schema, and the retrieval context
+block are built by the same code and only the transport differs. There is a test that
+runs the same summarisation through both providers and asserts the prompts match byte
+for byte.
+
+**Embeddings are always Ollama.** The Anthropic API has no embeddings endpoint, so
+`ask` and `index` keep embedding locally even under `--provider anthropic`, and Ollama
+has to be running for them. That is stated rather than worked around: the Anthropic
+client's `embed()` throws instead of substituting another model — vectors from two
+models are not comparable, and quietly mixing them would corrupt an index in a way that
+is very hard to notice — and when the two halves differ, an Ollama failure is reported
+with the reason Ollama is still involved:
+
+```
+Could not reach Ollama at http://localhost:59999 (fetch failed).
+  Start it with:  ollama serve
+
+  Answers come from anthropic (claude-opus-5), but embeddings have no anthropic
+  endpoint, so retrieval still uses Ollama (nomic-embed-text). Ollama must be running.
+```
+
+The API key is read from `ANTHROPIC_API_KEY` and nowhere else — never a flag, never a
+file — so it cannot land in shell history or a commit. An unset key fails preflight with
+the command to fix it, exactly like a missing Ollama model does.
 
 ## The UI
 
@@ -290,6 +324,8 @@ remediation rather than throwing.
 - Only JS/TS/TSX and Python are parsed. Other files are ignored entirely.
 - The UI bundles three.js, so the client build is around 1MB (275KB gzipped). That is
   fine over localhost and has not been optimised further.
+- `--provider anthropic` sends your source code to the Anthropic API. The local path
+  remains the default precisely because nothing has to leave the machine.
 - Summaries are only as good as the local model. The prompt sends the first 6000
   characters of a file, so a summary of a very large file describes its head, not its tail.
 - Retrieval searches summaries and declarations, not raw source. A question whose answer

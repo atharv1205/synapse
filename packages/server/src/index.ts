@@ -6,10 +6,11 @@ import {
   ask,
   buildIndex,
   loadIndex,
-  OllamaClient,
   DEFAULT_EMBED_MODEL,
-  DEFAULT_MODEL,
   DEFAULT_TOP_K,
+  createProviders,
+  defaultModelFor,
+  type ProviderName,
   type RepoGraph,
 } from "@synapse/core";
 
@@ -20,6 +21,7 @@ export interface ServerConfig {
   cacheDir: string;
   /** Built web app to serve, if there is one. Omitted in dev, where Vite serves it. */
   webDist?: string;
+  provider?: ProviderName;
   model?: string;
   embedModel?: string;
   ollamaUrl?: string;
@@ -48,6 +50,12 @@ export interface StatusResponse {
   embedModel: { name: string; available: boolean; message?: string };
   graph: { exists: boolean; fileCount?: number; generatedAt?: number | string };
   analysis: AnalysisState;
+  /**
+   * Which backend answers, and the note explaining why embeddings may come from a
+   * different one. The UI shows this so a user on --provider anthropic understands
+   * why Ollama still has to be running.
+   */
+  provider: { chat: string; embed: string; note?: string };
   index: { exists: boolean; chunks?: number; dim?: number };
   /** True when /api/ask can be expected to work right now. */
   canAsk: boolean;
@@ -72,7 +80,7 @@ interface IndexBody {
 export async function createServer(config: ServerConfig): Promise<FastifyInstance> {
   const app = Fastify({ logger: config.logger ?? false });
 
-  const model = config.model ?? DEFAULT_MODEL;
+  const model = config.model ?? defaultModelFor(config.provider ?? "ollama");
   const embedModel = config.embedModel ?? DEFAULT_EMBED_MODEL;
   const graphFile = path.join(config.cacheDir, "graph.json");
 
@@ -85,25 +93,35 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
   };
 
   app.get("/api/status", async (): Promise<StatusResponse> => {
-    const client = new OllamaClient({ baseUrl: config.ollamaUrl, model });
+    const providers = createProviders({
+      provider: config.provider,
+      model,
+      embedModel,
+      baseUrl: config.ollamaUrl,
+    });
 
-    // One preflight per model: each reports separately so the UI can say which is missing.
+    // Chat may be Anthropic while embeddings are always Ollama, so each half is vetted
+    // against its own backend and reported separately.
     const [chat, embed] = await Promise.all([
-      client.preflight(model),
-      client.preflight(embedModel),
+      providers.chat.preflight(model),
+      providers.embed.preflight(embedModel),
     ]);
 
-    // An unreachable server surfaces as both checks failing on the connection itself.
-    const reachable = !(
-      !chat.ok && /Could not reach Ollama/.test(chat.message)
-    );
+    // Ollama's reachability is whatever the embedding half saw — that is the half that
+    // always talks to it, whichever provider is answering questions.
+    const reachable = !(!embed.ok && /Could not reach Ollama/.test(embed.message));
 
     const graph = await readGraph();
     const store = await loadIndex(config.cacheDir, embedModel);
 
     return {
       root: config.root,
-      ollama: { baseUrl: client.baseUrl, reachable },
+      ollama: { baseUrl: providers.embed.endpoint, reachable },
+      provider: {
+        chat: providers.chat.name,
+        embed: providers.embed.name,
+        note: providers.embedNote,
+      },
       chatModel: { name: model, available: chat.ok, message: chat.ok ? undefined : chat.message },
       embedModel: {
         name: embedModel,
@@ -151,6 +169,7 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
       root: config.root,
       graph,
       cacheDir: config.cacheDir,
+      provider: config.provider,
       model,
       embedModel,
       baseUrl: config.ollamaUrl,
