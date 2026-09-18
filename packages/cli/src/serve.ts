@@ -11,6 +11,8 @@ export interface ServeOptions {
   port: number;
   host: string;
   provider?: ProviderName;
+  /** Credential for cloning a private repository, if the target is a URL. */
+  token?: string;
   model?: string;
   embedModel?: string;
   ollamaUrl?: string;
@@ -105,6 +107,7 @@ export async function serve(options: ServeOptions): Promise<void> {
       try {
         const graph = await analyze(options.root, {
           cacheDir: options.cacheDir,
+          token: options.token,
           provider: options.provider,
           model: options.model,
           ollamaUrl: options.ollamaUrl,

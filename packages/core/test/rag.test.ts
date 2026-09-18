@@ -86,11 +86,9 @@ async function summarisedGraph(root: string): Promise<RepoGraph> {
     node.summary = `Summary for ${node.path}.`;
   }
 
-  const hub = graph.nodes.find((n) => n.path === "hub.ts");
-  for (const fn of hub?.functions ?? []) {
+  // Declarations live once, in functionNodes, so one write is all it takes.
+  for (const fn of graph.functionNodes.filter((f) => f.file === "hub.ts")) {
     fn.summary = `${fn.qualifiedName} does something with the registry helper.`;
-    const twin = graph.functionNodes.find((f) => f.id === fn.id);
-    if (twin) twin.summary = fn.summary;
   }
 
   return graph;
@@ -135,7 +133,7 @@ describe("chunking", () => {
     assert.ok(hub);
     assert.match(hub.text, /File: hub\.ts/);
     assert.match(hub.text, /Summary for hub\.ts/);
-    assert.match(hub.text, /imported by 3 file\(s\)/);
+    assert.match(hub.text, /imported by 4 file\(s\)/);
     assert.match(hub.text, /- class Registry \(exported\)/);
     assert.match(hub.text, /- function sharedHelper \(exported\)/);
   });

@@ -1,4 +1,4 @@
-import type { FileNode, FunctionSymbol } from "../types.js";
+import type { FileNode, FunctionNode } from "../types.js";
 import type { JsonSchema } from "../llm/types.js";
 
 /**
@@ -16,7 +16,7 @@ export const TOP_FUNCTIONS_PER_FILE = 3;
 
 /** A function selected for summarisation, with the call count that got it selected. */
 export interface RankedFunction {
-  symbol: FunctionSymbol;
+  symbol: FunctionNode;
   callCount: number;
   signature: string;
 }
@@ -47,7 +47,7 @@ export interface SummaryResponse {
  * cheap and accurate for the common single-line case; multi-line parameter lists get
  * an ellipsis rather than a reconstructed signature, which is honest about the limit.
  */
-export function signatureOf(symbol: FunctionSymbol, lines: string[]): string {
+export function signatureOf(symbol: FunctionNode, lines: string[]): string {
   const line = lines[symbol.startLine - 1]?.trim() ?? symbol.name;
   const cleaned = line.replace(/\s*\{\s*$/, "").replace(/\s*:\s*$/, "");
   if (cleaned.length <= 120) return cleaned;
@@ -74,6 +74,8 @@ function languageFence(language: FileNode["language"]): string {
  */
 export function buildFilePrompt(
   node: FileNode,
+  /** The file's declarations, resolved from `functionNodes` by the caller. */
+  declarations: FunctionNode[],
   source: string,
   ranked: RankedFunction[],
 ): string {
@@ -95,7 +97,7 @@ export function buildFilePrompt(
     "",
   );
 
-  const allSignatures = node.functions.map((fn) => {
+  const allSignatures = declarations.map((fn) => {
     const marker = fn.exported ? " [exported]" : "";
     return `- ${fn.kind}: ${fn.qualifiedName}${marker}`;
   });

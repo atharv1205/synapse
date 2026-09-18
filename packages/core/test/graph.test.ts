@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { analyze } from "../src/analyze.js";
+import { functionIndex, resolveFunctions } from "../src/graph/lookup.js";
 import { normalize, normalizeChurn } from "../src/graph/score.js";
 import type { RepoGraph } from "../src/types.js";
-import { createFixture, type Fixture } from "./fixture.js";
+import { BIG_FILE_MIN_CHARS, createFixture, type Fixture } from "./fixture.js";
 
 describe("score normalisation", () => {
   it("maps a range onto 0..1", () => {
@@ -95,7 +98,7 @@ describe("analyze — fixture repo", () => {
 
   it("records in- and out-degree consistently with the edge list", () => {
     const hub = nodeFor("hub.ts");
-    assert.equal(hub.metrics.inDegree, 3, "hub is imported by app, util and lib/index");
+    assert.equal(hub.metrics.inDegree, 4, "hub is imported by app, util, lib/index and big");
     assert.equal(hub.metrics.outDegree, 0, "hub imports nothing internal");
     assert.equal(nodeFor("orphan.ts").metrics.inDegree, 0);
   });
@@ -115,8 +118,28 @@ describe("analyze — fixture repo", () => {
   });
 
   it("attaches the functions it found to each file node", () => {
-    const hubFunctions = nodeFor("hub.ts").functions.map((f) => f.qualifiedName).sort();
+    const hubFunctions = resolveFunctions(graph, nodeFor("hub.ts"))
+      .map((f) => f.qualifiedName)
+      .sort();
     assert.deepEqual(hubFunctions, ["Registry", "Registry.add", "Registry.total", "sharedHelper"]);
+  });
+
+  it("references declarations by id rather than duplicating them", () => {
+    const hub = nodeFor("hub.ts");
+    assert.ok(
+      hub.functions.every((id) => typeof id === "string"),
+      "file nodes should carry ids, not copies",
+    );
+    // Every id must resolve, or the graph is internally inconsistent.
+    const index = functionIndex(graph);
+    for (const node of graph.nodes) {
+      for (const id of node.functions) {
+        assert.ok(index.has(id), `${node.path} references a missing declaration ${id}`);
+      }
+    }
+    // And every declaration must be claimed by exactly one file.
+    const claimed = graph.nodes.flatMap((n) => n.functions);
+    assert.equal(new Set(claimed).size, graph.functionNodes.length);
   });
 
   it("builds a function-level graph with resolved cross-file calls", () => {
@@ -132,8 +155,70 @@ describe("analyze — fixture repo", () => {
     assert.equal(top?.id, "hub.ts#sharedHelper");
   });
 
+  // --- regression: tree-sitter's 32KB string limit -------------------------
+  //
+  // Parser.parse() threw "Invalid argument" on any string of 32,768 characters or more,
+  // and analyze() swallowed it, so every file above 32KB silently vanished from the
+  // graph — 515 of 18,851 files on home-assistant/core, weighted toward the largest and
+  // most depended-on files. These assertions fail loudly if that ever returns.
+
+  it("parses a file larger than the old 32KB parser limit", async () => {
+    const source = await readFile(path.join(fixture.root, "big.ts"), "utf8");
+    assert.ok(
+      source.length > BIG_FILE_MIN_CHARS,
+      `the fixture must exceed the old limit; it is ${source.length} chars`,
+    );
+    assert.ok(graph.nodes.some((n) => n.path === "big.ts"), "big.ts is missing from the graph");
+  });
+
+  it("reports no parse failures at all", () => {
+    assert.deepEqual(graph.parseFailures, [], "nothing should be dropping out of the graph");
+    assert.equal(graph.stats.parseFailures, 0);
+  });
+
+  it("extracts declarations from the whole of an oversized file, not just its head", () => {
+    const names = resolveFunctions(graph, nodeFor("big.ts")).map((f) => f.name);
+    assert.ok(names.length > 10, `expected many declarations, got ${names.length}`);
+    assert.ok(names.includes("bulky0"), "the first declaration should be present");
+    // Declared on the final line: if the parse were truncated, this would be absent.
+    assert.ok(names.includes("lastDeclaration"), "the last declaration should be present");
+  });
+
+  it("resolves imports out of an oversized file", () => {
+    assert.ok(
+      hasEdge("big.ts", "hub.ts"),
+      "big.ts imports hub.ts; a dropped file takes its edges with it",
+    );
+  });
+
+  it("counts an oversized file toward the importance of what it imports", () => {
+    // hub.ts is imported by app, util, lib/index and big — the last of which the old
+    // parser lost, silently understating hub's centrality.
+    assert.equal(nodeFor("hub.ts").metrics.inDegree, 4);
+  });
+
+  it("carries parse failures through into the stats", async () => {
+    // The fix removed the only known cause, so the reporting path is exercised
+    // directly — otherwise a future regression would have nothing asserting on it.
+    const { buildGraph } = await import("../src/graph/build.js");
+    const built = buildGraph({
+      files: [],
+      parsed: new Map(),
+      resolver: await (await import("../src/graph/resolve.js")).ImportResolver.create(
+        fixture.root,
+        [],
+        [],
+      ),
+      churn: new Map(),
+      churnAvailable: false,
+      parseFailures: [{ path: "huge.ts", reason: "Invalid argument" }],
+    });
+
+    assert.equal(built.stats.parseFailures, 1);
+  });
+
   it("emits a graph with the documented shape", () => {
-    assert.equal(graph.version, 1);
+    assert.equal(graph.version, 2);
     assert.ok(Date.parse(graph.generatedAt) > 0);
     assert.equal(graph.stats.fileCount, graph.nodes.length);
     assert.equal(graph.stats.edgeCount, graph.edges.length);

@@ -119,7 +119,41 @@ def run(values):
 
   // Must be KEPT: negated by "!keep.gen.ts".
   "keep.gen.ts": `export const kept = true;`,
+
+  // Filled in below: a file deliberately larger than tree-sitter's old string limit.
+  "big.ts": "",
 };
+
+/**
+ * tree-sitter's Node binding rejects a string of 32,768 characters or more, which used
+ * to make every file above that size vanish from the graph without a word. This file is
+ * generated just over the line so the regression cannot come back unnoticed.
+ */
+export const BIG_FILE_MIN_CHARS = 32_768;
+
+function buildBigFile(): string {
+  const header = 'import { sharedHelper } from "./hub.js";\n\n';
+  const body: string[] = [];
+  let index = 0;
+
+  // Padded with a comment so the file crosses the limit on size, not on declaration
+  // count — a few hundred functions would otherwise be enough to pass by accident.
+  while (header.length + body.join("").length <= BIG_FILE_MIN_CHARS + 2_000) {
+    body.push(
+      `// filler to push this file past the parser's old ceiling ${"-".repeat(40)}\n` +
+        `export function bulky${index}(value: number): number {\n` +
+        `  return sharedHelper(value) + ${index};\n` +
+        `}\n\n`,
+    );
+    index++;
+  }
+
+  // One distinctive declaration at the very end, so a truncated parse is detectable.
+  body.push("export function lastDeclaration(): number {\n  return sharedHelper(1);\n}\n");
+  return header + body.join("");
+}
+
+FILES["big.ts"] = buildBigFile();
 
 export async function createFixture(): Promise<Fixture> {
   const root = await mkdtemp(path.join(tmpdir(), "synapse-fixture-"));

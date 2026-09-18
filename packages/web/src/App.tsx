@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { functionIndex, functionsOf } from "@synapse/core";
 import type { RepoGraph } from "@synapse/core";
 import { api, ApiError, type Status } from "./api";
 import { computeLayout } from "./layout";
@@ -165,6 +166,9 @@ export function App() {
   }
 
   const selectedNode = selected !== undefined ? graph.nodes[selected] : undefined;
+  const selectedDeclarations = selectedNode
+    ? functionsOf(selectedNode, functionIndex(graph))
+    : [];
   const askUnavailable =
     status && !status.canAsk
       ? (status.chatModel.message ?? status.embedModel.message ?? "Questions are unavailable.")
@@ -204,6 +208,7 @@ export function App() {
           {selectedNode && (
             <NodeDetails
               node={selectedNode}
+              declarations={selectedDeclarations}
               onAskAbout={(question) => setPrefill(question)}
               onClose={() => setSelected(undefined)}
             />

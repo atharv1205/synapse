@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { signatureOf } from "../summarize/prompt.js";
-import type { FileNode, RepoGraph } from "../types.js";
+import type { FileNode, FunctionNode, RepoGraph } from "../types.js";
+import { functionIndex, functionsOf } from "../graph/lookup.js";
 
 /** One retrievable unit: the text that gets embedded, plus what it points back at. */
 export interface Chunk {
@@ -35,7 +36,7 @@ function finish(chunk: Omit<Chunk, "hash">): Chunk {
  * A file chunk: what the file is, what it declares, and why the graph thinks it
  * matters. This is the coarse level, for questions like "where does X live".
  */
-function fileChunk(node: FileNode): Chunk {
+function fileChunk(node: FileNode, declarations: FunctionNode[]): Chunk {
   const { metrics } = node;
   const lines: string[] = [
     `File: ${node.path}`,
@@ -50,9 +51,9 @@ function fileChunk(node: FileNode): Chunk {
       `imports ${metrics.outDegree} file(s), ${metrics.churn} commit(s), ${metrics.loc} lines.`,
   );
 
-  if (node.functions.length > 0) {
+  if (declarations.length > 0) {
     lines.push("", "Declares:");
-    for (const fn of node.functions) {
+    for (const fn of declarations) {
       const marker = fn.exported ? " (exported)" : "";
       lines.push(`- ${fn.kind} ${fn.qualifiedName}${marker}`);
     }
@@ -75,7 +76,7 @@ function fileChunk(node: FileNode): Chunk {
  */
 function functionChunk(
   node: FileNode,
-  fn: FileNode["functions"][number],
+  fn: FunctionNode,
   signature: string,
   calls: string[],
 ): Chunk {
@@ -126,11 +127,13 @@ export async function buildChunks(graph: RepoGraph, root?: string): Promise<Chun
   }
 
   const chunks: Chunk[] = [];
+  const declarations = functionIndex(graph);
 
   for (const node of graph.nodes) {
-    chunks.push(fileChunk(node));
+    const own = functionsOf(node, declarations);
+    chunks.push(fileChunk(node, own));
 
-    const summarised = node.functions.filter((fn) => fn.summary);
+    const summarised = own.filter((fn) => fn.summary);
     if (summarised.length === 0) continue;
 
     let lines: string[] | undefined;

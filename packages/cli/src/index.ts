@@ -14,6 +14,8 @@ import {
   DEFAULT_TOP_K,
   DEFAULT_ANTHROPIC_MODEL,
   defaultModelFor,
+  functionIndex,
+  functionsOf,
   type ProviderName,
   type RepoGraph,
 } from "@synapse/core";
@@ -30,6 +32,8 @@ Usage:
 analyze:
   --out <dir>            Where to write graph.json (default: <target>/.synapse)
   --depth <n>            Clone depth when given a URL (default: 200)
+  --token <token>        Credential for a private repository. Prefer the GITHUB_TOKEN
+                         environment variable, which keeps it out of shell history.
   --top <n>              How many files to list in the summary (default: 10)
   --skip-churn           Skip the git history pass
   --skip-summarize       Skip LLM summarisation entirely
@@ -113,6 +117,18 @@ function providerFrom(values: Record<string, unknown>): ProviderName {
   process.exit(1);
 }
 
+/**
+ * The credential for a private clone. The flag wins over the environment when both are
+ * present, but the environment is the better habit: a flag lands in shell history and
+ * in this process's own argv.
+ */
+function tokenFrom(values: Record<string, unknown>): string | undefined {
+  const flag = typeof values.token === "string" ? values.token.trim() : "";
+  if (flag) return flag;
+  const env = (process.env.GITHUB_TOKEN ?? "").trim();
+  return env || undefined;
+}
+
 function llmOptions(values: Record<string, unknown>) {
   const provider = providerFrom(values);
   return {
@@ -126,6 +142,23 @@ function llmOptions(values: Record<string, unknown>) {
 // ---------------------------------------------------------------------------
 // analyze
 // ---------------------------------------------------------------------------
+
+/**
+ * Files missing from the graph. This is never expected to be non-zero, so it is
+ * reported loudly rather than tucked into a debug flag: each missing file takes its
+ * imports and declarations with it and skews every score computed from them.
+ */
+function printParseFailures(graph: RepoGraph): void {
+  const failures = graph.parseFailures ?? [];
+  if (failures.length === 0) return;
+
+  console.log(`\nParse failures: ${failures.length} file(s) are MISSING from this graph.`);
+  for (const failure of failures.slice(0, 10)) {
+    console.log(`  ${failure.path}`);
+    console.log(`    ${failure.reason.split("\n")[0]}`);
+  }
+  if (failures.length > 10) console.log(`  … and ${failures.length - 10} more`);
+}
 
 function printSummarization(graph: RepoGraph): void {
   const report = graph.summarization;
@@ -160,17 +193,20 @@ function printGraphSummary(graph: RepoGraph, top: number): void {
     console.log(`Languages: ${languages.map(([l, n]) => `${l} ${n}`).join(", ")}`);
   }
 
+  printParseFailures(graph);
   printSummarization(graph);
 
   if (graph.nodes.length === 0 || top === 0) return;
 
   console.log(`\nTop ${Math.min(top, graph.nodes.length)} files by importance:`);
+  const declarations = functionIndex(graph);
+
   for (const node of graph.nodes.slice(0, top)) {
     const { inDegree, outDegree, churn, loc } = node.metrics;
     console.log(`\n  ${node.importance.toFixed(4)}  ${node.path}`);
     console.log(`    in ${inDegree} · out ${outDegree} · ${churn} commits · ${loc} loc`);
     if (node.summary) console.log(`    ${wrap(node.summary, 4)}`);
-    for (const fn of node.functions.filter((f) => f.summary).slice(0, 3)) {
+    for (const fn of functionsOf(node, declarations).filter((f) => f.summary).slice(0, 3)) {
       console.log(`      · ${fn.qualifiedName} — ${wrap(fn.summary!, 8)}`);
     }
   }
@@ -182,6 +218,7 @@ async function runAnalyze(target: string, values: Record<string, unknown>): Prom
 
   const graph = await analyze(target, {
     depth: values.depth ? Number(values.depth) : undefined,
+    token: tokenFrom(values),
     skipChurn: values["skip-churn"] === true,
     skipSummarize: values["skip-summarize"] === true,
     provider: llm.provider,
@@ -301,6 +338,7 @@ async function main(): Promise<void> {
       "skip-summarize": { type: "boolean" },
       model: { type: "string" },
       provider: { type: "string" },
+      token: { type: "string" },
       "embed-model": { type: "string" },
       "summarize-top": { type: "string" },
       "top-k": { type: "string" },
@@ -344,6 +382,7 @@ async function main(): Promise<void> {
         cacheDir: resolveOutDir(root, values.out),
         port: values.port ? Number(values.port) : 4317,
         host: typeof values.host === "string" ? values.host : "127.0.0.1",
+        token: tokenFrom(values),
         provider: llm.provider,
         model: llm.model,
         embedModel: llm.embedModel,

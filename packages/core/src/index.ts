@@ -72,3 +72,5 @@ export {
   type Preflight,
   type JsonSchema,
 } from "./llm/types.js";
+export { functionIndex, functionsOf, resolveFunctions } from "./graph/lookup.js";
+export type { ParseFailure } from "./types.js";

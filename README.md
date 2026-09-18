@@ -3,7 +3,7 @@
 Analyses a codebase — from a GitHub URL or a local folder — and produces a dependency
 graph of its files and functions, scored by how important each one is.
 
-**Status: Phases 0-5a complete.**
+**Status: Phases 0-5b complete.**
 
 ## Quick start
 
@@ -53,6 +53,7 @@ synapse analyze <path-or-github-url> [options]
 
   --out <dir>            Where to write graph.json (default: <target>/.synapse)
   --depth <n>            Clone depth when given a URL (default: 200)
+  --token <token>        Credential for a private repository (or GITHUB_TOKEN)
   --top <n>              How many files to list in the summary (default: 10)
   --skip-churn           Skip the git history pass
 
@@ -94,7 +95,17 @@ A local path is read in place and never modified.
 ignore files and negation patterns. `node_modules`, `.git`, virtualenvs and build output
 are skipped unconditionally.
 
-**Parsing.** tree-sitter parses JavaScript, TypeScript, TSX and Python. Per file it
+**Parsing.** tree-sitter parses JavaScript, TypeScript, TSX and Python, through its
+callback input rather than by handing it a string. The Node binding rejects a string of
+32,768 characters or more with a bare "Invalid argument", which silently cost every file
+above 32KB — 515 of 18,851 on home-assistant/core, weighted toward the largest and
+most-depended-on files, so the gap quietly skewed every importance score. The callback
+form has no such limit, measures no slower, and produces an identical tree, so it is
+used for every file rather than only large ones.
+
+A file that still cannot be read or parsed is recorded in `parseFailures` and counted in
+`stats.parseFailures` instead of being dropped in silence, and the CLI reports it
+loudly. It should always be zero. Per file it
 extracts import statements (ESM, `require`, dynamic `import()`, and Python's `import` /
 `from ... import` including relative forms), function/class/method declarations, and call
 sites attributed to the function that encloses them.
@@ -183,6 +194,16 @@ Vectors are stored unit-length in `.synapse/embeddings.bin` with metadata in
 `.synapse/embeddings.json`, so a dot product *is* the cosine similarity and no
 per-comparison normalisation is needed.
 
+## The graph's shape
+
+`functionNodes` is the single source of truth for declarations; `nodes[].functions`
+holds ids into it. Resolve them with the exported `functionIndex()` and `functionsOf()`
+helpers — build the index once per graph rather than scanning per file.
+
+They used to be full objects in both places, which serialised every declaration twice:
+**31.6MB of pure duplication** on an 18,851-file repo. `version` is `2` for this shape;
+a `version: 1` file has the old duplicated form and should be regenerated.
+
 ## Providers
 
 Summaries and answers can come from the local Ollama model or from the Anthropic API.
@@ -214,6 +235,47 @@ Could not reach Ollama at http://localhost:59999 (fetch failed).
 The API key is read from `ANTHROPIC_API_KEY` and nowhere else — never a flag, never a
 file — so it cannot land in shell history or a commit. An unset key fails preflight with
 the command to fix it, exactly like a missing Ollama model does.
+
+## Private repositories
+
+`analyze` and `serve` accept a credential for cloning a private repo, from `--token` or
+the `GITHUB_TOKEN` environment variable. The environment variable is preferred and the
+help says so: a flag lands in shell history and in the process's own argv.
+
+The token reaches git through the child process environment and is read there by an
+inline credential helper. Three exposures are avoided deliberately:
+
+- **argv** — the token is never an argument, so it cannot be read from `ps` by another
+  user on the machine, and it is never embedded in the URL.
+- **the clone's git config** — because the URL carries no credential, git has nothing to
+  persist into `.git/config`.
+- **the system keychain** — an empty `credential.helper` entry is injected first, which
+  resets the helpers git would otherwise inherit, so a keychain cannot answer instead.
+
+Any `GIT_CONFIG_*` entries already exported are preserved; Synapse's own are appended
+after them rather than overwriting the count.
+
+This one command is run through `execFile` rather than simple-git, because simple-git's
+argv guard rejects credential-helper and `GIT_CONFIG_*` injection outright — which is
+precisely the mechanism that keeps the token out of argv. simple-git still runs the
+churn queries.
+
+Everything user-visible is redacted first. A credential pasted into the URL is stripped
+before the URL is logged, put in an error, or written to `graph.json`, and git's own
+output is scrubbed of the token before it is shown. A failed clone explains what to do
+rather than repeating git's raw text:
+
+```
+Could not clone https://github.com/anthropics/private-repo.
+  If it is private, Synapse needs a token:
+    export GITHUB_TOKEN=ghp_...   (preferred — keeps it out of shell history)
+    or pass --token <token>
+  If it is public, check the URL is spelled correctly.
+  Git said: remote: Repository not found. fatal: repository '…' not found
+```
+
+GitHub answers an unauthenticated request for a private repo with "not found" — the same
+thing it says for a typo — so the message covers both rather than claiming to know which.
 
 ## The UI
 
@@ -263,7 +325,7 @@ Written to `.synapse/graph.json`:
 
 ```jsonc
 {
-  "version": 1,
+  "version": 2,
   "source": "https://github.com/owner/repo",
   "generatedAt": "2026-09-17T…",
   "stats": { "fileCount": 12, "edgeCount": 28, "externalImports": 21, … },
@@ -277,14 +339,15 @@ Written to `.synapse/graph.json`:
       "metrics": { "loc": 102, "churn": 3, "inDegree": 7, "outDegree": 0,
                    "centrality": 1, "churnScore": 0.5 },
       "summary": "Defines the shared helpers the rest of the package builds on.",
-      "functions": [ { "id": "src/hub.ts#sharedHelper", "name": "sharedHelper",
-                       "kind": "function", "startLine": 1, "endLine": 3,
-                       "exported": true, "importance": 1,
-                       "summary": "Doubles the value it is given." } ]
+      // ids into functionNodes, which holds the declarations themselves
+      "functions": [ "src/hub.ts#sharedHelper" ]
     }
   ],
   "edges": [ { "from": "src/app.ts", "to": "src/hub.ts", "type": "import", "weight": 1 } ],
-  "functionNodes": [ … ],
+  "functionNodes": [ { "id": "src/hub.ts#sharedHelper", "file": "src/hub.ts",
+                       "name": "sharedHelper", "kind": "function", "exported": true,
+                       "startLine": 1, "endLine": 3, "importance": 1,
+                       "summary": "Doubles the value it is given." } ],
   "functionEdges": [ { "from": "src/util.ts#double", "to": "src/hub.ts#sharedHelper",
                        "type": "call", "weight": 1 } ],
   "summarization": { "ran": true, "model": "qwen2.5:14b-instruct", "selected": 50,
@@ -317,6 +380,10 @@ remediation rather than throwing.
 
 ## Known limits
 
+- Large repositories work but are not fast: on home-assistant/core (18,851 Python files,
+  117.7MB of source) parsing takes ~42s and peaks around 1.1GB RSS, churn adds ~2.5
+  minutes, and building the embedding index takes ~10 minutes. The 3D view does not yet
+  hold up at that scale.
 - `git log --follow` only accepts one path at a time, so churn is one git process per file.
   Bounded to 16 concurrent, but it is the slowest step by a wide margin on large repos.
 - Call-graph resolution is name-based, not scope-aware. Two same-named functions in one

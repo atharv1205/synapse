@@ -40,7 +40,15 @@ export interface FileNode {
   metrics: FileMetrics;
   /** 1-3 sentence LLM summary. Present only for files that were summarised. */
   summary?: string;
-  functions: FunctionSymbol[];
+  /**
+   * Ids of the declarations in this file, pointing into `RepoGraph.functionNodes`,
+   * which is the single source of truth for them.
+   *
+   * These used to be full objects, which meant every declaration was serialised twice —
+   * 32MB of pure duplication on an 18,851-file repo. Resolve them with
+   * `functionIndex()` / `functionsOf()`.
+   */
+  functions: string[];
 }
 
 export interface FileMetrics {
@@ -66,7 +74,11 @@ export interface GraphEdge {
   weight: number;
 }
 
-/** A node in the finer-grained function-level graph. */
+/**
+ * A declaration in the function-level graph, and the canonical record of it.
+ *
+ * `FileNode.functions` holds ids into this list rather than copies.
+ */
 export interface FunctionNode {
   id: string;
   /** Owning file's path. */
@@ -78,11 +90,17 @@ export interface FunctionNode {
   importance: number;
   startLine: number;
   endLine: number;
+  /** Whether the declaration is exported from its module. */
+  exported: boolean;
   summary?: string;
 }
 
 export interface RepoGraph {
-  version: 1;
+  /**
+   * 2 — `nodes[].functions` holds ids into `functionNodes` rather than copies of the
+   * declarations. A version 1 file has the duplicated shape and must be regenerated.
+   */
+  version: 2;
   /** Where the analysed source lived. For clones, the original URL. */
   source: string;
   generatedAt: string;
@@ -93,6 +111,8 @@ export interface RepoGraph {
   functionEdges: GraphEdge[];
   /** Present whenever summarisation was attempted, including when it was skipped. */
   summarization?: SummarizationReport;
+  /** The files behind `stats.parseFailures`, so a regression names itself. */
+  parseFailures: ParseFailure[];
 }
 
 /** What happened during the summarisation pass, for the CLI to report honestly. */
@@ -112,6 +132,13 @@ export interface SummarizationReport {
   message?: string;
 }
 
+/** A file that could not be read or parsed, and so is absent from the graph. */
+export interface ParseFailure {
+  path: string;
+  /** Why it dropped out — the read or parse error, verbatim. */
+  reason: string;
+}
+
 export interface GraphStats {
   fileCount: number;
   edgeCount: number;
@@ -119,6 +146,12 @@ export interface GraphStats {
   functionEdgeCount: number;
   /** Imports that pointed outside the repo (node_modules, stdlib, unresolved). */
   externalImports: number;
+  /**
+   * Files that failed to read or parse and are therefore missing from the graph.
+   * Should be zero; anything else means the graph is incomplete and every importance
+   * score is computed over a partial picture.
+   */
+  parseFailures: number;
   byLanguage: Record<string, number>;
   /** True when git history was available and churn was measured. */
   churnAvailable: boolean;

@@ -29,8 +29,30 @@ function parserFor(language: Language): Parser {
   return parser;
 }
 
+/**
+ * How much source to hand tree-sitter per callback invocation. Any value works; this
+ * is large enough to keep the call count low and small enough to stay cache-friendly.
+ */
+const READ_CHUNK = 16_384;
+
+/**
+ * Parses source via tree-sitter's callback input rather than by passing a string.
+ *
+ * The Node binding rejects a string of 32,768 characters or more with a bare
+ * "Invalid argument", which silently cost us every file above 32KB — 515 of 18,851 in
+ * home-assistant/core, and biased toward the largest and most depended-on files, so the
+ * gap distorted every importance score. The callback form has no such limit.
+ *
+ * It is used for every file, not just large ones. Measured overhead against the string
+ * form is nil (within noise on a 13KB file), the resulting tree is identical, and using
+ * one path everywhere means there is no size threshold to get wrong. `index` counts
+ * UTF-16 code units, which is exactly what `String.prototype.slice` takes, so
+ * multi-byte characters and surrogate pairs straddling a chunk boundary are safe.
+ */
 export function parseSource(source: string, language: Language): SyntaxNode {
-  return parserFor(language).parse(source).rootNode;
+  return parserFor(language).parse((index: number) =>
+    index < source.length ? source.slice(index, index + READ_CHUNK) : null,
+  ).rootNode;
 }
 
 /** Depth-first walk over every named node, calling `visit` on each. */

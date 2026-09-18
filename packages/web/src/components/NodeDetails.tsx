@@ -1,7 +1,9 @@
-import type { FileNode } from "@synapse/core";
+import type { FileNode, FunctionNode } from "@synapse/core";
 
 export interface NodeDetailsProps {
   node: FileNode;
+  /** The file's declarations, resolved from the graph's canonical list. */
+  declarations: FunctionNode[];
   onAskAbout(question: string): void;
   onClose(): void;
 }
@@ -11,9 +13,9 @@ export function questionFor(node: FileNode): string {
   return `What does ${node.path} do and what depends on it?`;
 }
 
-export function NodeDetails({ node, onAskAbout, onClose }: NodeDetailsProps) {
+export function NodeDetails({ node, declarations, onAskAbout, onClose }: NodeDetailsProps) {
   const { metrics } = node;
-  const summarised = node.functions.filter((fn) => fn.summary);
+  const summarised = declarations.filter((fn) => fn.summary);
   // Functions carry an importance score already, so the panel just orders by it.
   const top = [...summarised].sort((a, b) => b.importance - a.importance).slice(0, 5);
 
@@ -51,7 +53,7 @@ export function NodeDetails({ node, onAskAbout, onClose }: NodeDetailsProps) {
           <span className="metric-label">lines</span>
         </div>
         <div>
-          <span className="metric-value">{node.functions.length}</span>
+          <span className="metric-value">{declarations.length}</span>
           <span className="metric-label">declarations</span>
         </div>
       </div>
@@ -84,11 +86,11 @@ export function NodeDetails({ node, onAskAbout, onClose }: NodeDetailsProps) {
         </section>
       )}
 
-      {summarised.length === 0 && node.functions.length > 0 && (
+      {summarised.length === 0 && declarations.length > 0 && (
         <section>
           <h3>Declarations</h3>
           <ul className="plain-list">
-            {node.functions.slice(0, 12).map((fn) => (
+            {declarations.slice(0, 12).map((fn) => (
               <li key={fn.id}>
                 <code>{fn.qualifiedName}</code>
                 <span className="line-ref">:{fn.startLine}</span>

@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { FileNode, RepoGraph, SummarizationReport } from "../types.js";
+import type { FileNode, FunctionNode, RepoGraph, SummarizationReport } from "../types.js";
+import { functionIndex, functionsOf } from "../graph/lookup.js";
 import { SummaryCache, contentHash, type CachedSummary } from "./cache.js";
 import { DEFAULT_MODEL } from "../llm/ollama.js";
 import { createChatProvider, type ProviderOptions } from "../llm/provider.js";
@@ -60,12 +61,12 @@ export function callCounts(graph: RepoGraph): Map<string, number> {
 
 /** Picks a file's most-called functions, falling back to importance to break ties. */
 export function rankFunctions(
-  node: FileNode,
+  declarations: FunctionNode[],
   counts: Map<string, number>,
   lines: string[],
   limit = TOP_FUNCTIONS_PER_FILE,
 ): RankedFunction[] {
-  return node.functions
+  return declarations
     .map((symbol) => ({
       symbol,
       callCount: counts.get(symbol.id) ?? 0,
@@ -80,18 +81,17 @@ export function rankFunctions(
     .slice(0, limit);
 }
 
-/** Anything carrying a summary field: a FunctionSymbol on a file node, or a FunctionNode. */
-type Summarizable = { summary?: string };
-
-/** Copies a cached or freshly generated summary onto the node and its functions. */
-function attach(node: FileNode, entry: CachedSummary, byId: Map<string, Summarizable[]>): void {
+/**
+ * Copies a cached or freshly generated summary onto the file node and its declarations.
+ *
+ * Each declaration now exists exactly once, in `functionNodes`, so writing a summary
+ * once is enough — there is no second copy on the file node to keep in step.
+ */
+function attach(node: FileNode, entry: CachedSummary, declarations: FunctionNode[]): void {
   node.summary = entry.summary;
   for (const [qualifiedName, summary] of Object.entries(entry.functions)) {
-    const symbol = node.functions.find((f) => f.qualifiedName === qualifiedName);
-    if (!symbol) continue;
-    symbol.summary = summary;
-    // The function-level graph holds separate objects for the same declarations.
-    for (const twin of byId.get(symbol.id) ?? []) twin.summary = summary;
+    const fn = declarations.find((f) => f.qualifiedName === qualifiedName);
+    if (fn) fn.summary = summary;
   }
 }
 
@@ -139,15 +139,7 @@ export async function summarizeGraph(
   }
 
   const counts = callCounts(graph);
-
-  // Function-level nodes mirror the symbols on each file node; index them so a summary
-  // written once lands on both representations.
-  const twinsById = new Map<string, Summarizable[]>();
-  for (const fn of graph.functionNodes) {
-    const list = twinsById.get(fn.id);
-    if (list) list.push(fn);
-    else twinsById.set(fn.id, [fn]);
-  }
+  const declarations = functionIndex(graph);
 
   const cache = await SummaryCache.load(cacheDir);
   const liveHashes = new Set<string>();
@@ -179,22 +171,24 @@ export async function summarizeGraph(
       const hash = contentHash(node.path, source);
       liveHashes.add(hash);
 
+      const own = functionsOf(node, declarations);
+
       const cached = cache.get(hash, model, PROMPT_VERSION);
       if (cached) {
-        attach(node, cached, twinsById);
+        attach(node, cached, own);
         fromCache++;
         onProgress(`${position} cached  ${node.path}`);
         continue;
       }
 
-      const ranked = rankFunctions(node, counts, source.split("\n"));
-      const prompt = buildFilePrompt(node, source, ranked);
+      const ranked = rankFunctions(own, counts, source.split("\n"));
+      const prompt = buildFilePrompt(node, own, source, ranked);
 
       try {
         const response = await backend.generateJson<SummaryResponse>(prompt, SUMMARY_SCHEMA);
         const entry = toEntry(node, model, response, ranked);
         cache.set(hash, entry);
-        attach(node, entry, twinsById);
+        attach(node, entry, own);
         generated++;
         onProgress(`${position} summarised ${node.path}`);
       } catch (error) {

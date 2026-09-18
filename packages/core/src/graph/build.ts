@@ -4,6 +4,7 @@ import type { AbstractGraph as Graph } from "graphology-types";
 import type { ParsedFile } from "../parse/extract.js";
 import type {
   FileNode,
+  ParseFailure,
   FunctionNode,
   FunctionSymbol,
   GraphEdge,
@@ -34,6 +35,8 @@ export interface BuildInput {
   churn: Map<string, number>;
   churnAvailable: boolean;
   weights?: ScoreWeights;
+  /** Files that never made it into `parsed`, carried through into the stats. */
+  parseFailures?: ParseFailure[];
 }
 
 export interface BuildResult {
@@ -185,10 +188,15 @@ export function buildGraph(input: BuildInput): BuildResult {
     ),
   );
 
+  // functionNodes is the canonical list; file nodes reference these by id.
   const functionNodes: FunctionNode[] = [];
+  const functionIdsByFile = new Map<string, string[]>();
+
   for (const file of input.files) {
+    const ids: string[] = [];
     for (const symbol of symbolsByFile.get(file.path) ?? []) {
       symbol.importance = round(functionCentrality.get(symbol.id) ?? 0);
+      ids.push(symbol.id);
       functionNodes.push({
         id: symbol.id,
         file: file.path,
@@ -199,8 +207,10 @@ export function buildGraph(input: BuildInput): BuildResult {
         importance: symbol.importance,
         startLine: symbol.startLine,
         endLine: symbol.endLine,
+        exported: symbol.exported,
       });
     }
+    functionIdsByFile.set(file.path, ids);
   }
 
   // --- Assemble file nodes --------------------------------------------------
@@ -226,7 +236,7 @@ export function buildGraph(input: BuildInput): BuildResult {
         centrality: round(c),
         churnScore: round(k),
       },
-      functions: symbolsByFile.get(file.path) ?? [],
+      functions: functionIdsByFile.get(file.path) ?? [],
     };
   });
 
@@ -244,6 +254,7 @@ export function buildGraph(input: BuildInput): BuildResult {
       functionCount: functionNodes.length,
       functionEdgeCount: functionEdges.length,
       externalImports,
+      parseFailures: input.parseFailures?.length ?? 0,
       byLanguage,
       churnAvailable: input.churnAvailable,
     },

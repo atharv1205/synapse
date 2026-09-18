@@ -12,7 +12,7 @@ import {
   MAX_SOURCE_CHARS,
 } from "../src/summarize/prompt.js";
 import { callCounts, rankFunctions, summarizeGraph, type SummarizerBackend } from "../src/summarize/index.js";
-import type { FileNode, RepoGraph } from "../src/types.js";
+import type { FileNode, FunctionNode, RepoGraph } from "../src/types.js";
 import { createFixture, type Fixture } from "./fixture.js";
 
 /**
@@ -138,23 +138,27 @@ describe("prompt construction", () => {
     language: "typescript",
     importance: 0.9,
     metrics: { loc: 40, churn: 7, outDegree: 2, inDegree: 5, centrality: 1, churnScore: 0.8 },
-    functions: [
-      {
-        id: "src/hub.ts#sharedHelper",
-        name: "sharedHelper",
-        qualifiedName: "sharedHelper",
-        kind: "function",
-        startLine: 1,
-        endLine: 3,
-        exported: true,
-        importance: 1,
-      },
-    ],
+    functions: ["src/hub.ts#sharedHelper"],
   };
 
+  const declarations: FunctionNode[] = [
+    {
+      id: "src/hub.ts#sharedHelper",
+      file: "src/hub.ts",
+      name: "sharedHelper",
+      qualifiedName: "sharedHelper",
+      kind: "function",
+      type: "function",
+      startLine: 1,
+      endLine: 3,
+      exported: true,
+      importance: 1,
+    },
+  ];
+
   const source = "export function sharedHelper(value: number): number {\n  return value * 2;\n}\n";
-  const ranked = rankFunctions(node, new Map([["src/hub.ts#sharedHelper", 4]]), source.split("\n"));
-  const prompt = buildFilePrompt(node, source, ranked);
+  const ranked = rankFunctions(declarations, new Map([["src/hub.ts#sharedHelper", 4]]), source.split("\n"));
+  const prompt = buildFilePrompt(node, declarations, source, ranked);
 
   it("includes the file path and language", () => {
     assert.match(prompt, /File: src\/hub\.ts/);
@@ -186,14 +190,16 @@ describe("prompt construction", () => {
     assert.equal(truncated, true);
     assert.equal(text.length, MAX_SOURCE_CHARS);
 
-    const big = buildFilePrompt(node, huge, ranked);
+    const big = buildFilePrompt(node, declarations, huge, ranked);
     assert.ok(big.length < huge.length, "prompt must be smaller than the file it describes");
     assert.match(big, /Source \(first 6000 of 18000 characters\)/);
   });
 
   it("derives a signature from the declaration's own line", () => {
-    const symbol = node.functions[0]!;
-    assert.equal(signatureOf(symbol, source.split("\n")), "export function sharedHelper(value: number): number");
+    assert.equal(
+      signatureOf(declarations[0]!, source.split("\n")),
+      "export function sharedHelper(value: number): number",
+    );
   });
 });
 
@@ -220,17 +226,21 @@ describe("function ranking", () => {
       language: "typescript",
       importance: 0.5,
       metrics: { loc: 10, churn: 0, outDegree: 0, inDegree: 0, centrality: 0, churnScore: 0 },
-      functions: ["a", "b", "c", "d"].map((name, i) => ({
-        id: `f.ts#${name}`,
-        name,
-        qualifiedName: name,
-        kind: "function" as const,
-        startLine: i + 1,
-        endLine: i + 1,
-        exported: true,
-        importance: 0,
-      })),
+      functions: ["a", "b", "c", "d"].map((name) => `f.ts#${name}`),
     };
+
+    const declarations: FunctionNode[] = ["a", "b", "c", "d"].map((name, i) => ({
+      id: `f.ts#${name}`,
+      file: "f.ts",
+      name,
+      qualifiedName: name,
+      kind: "function" as const,
+      type: "function" as const,
+      startLine: i + 1,
+      endLine: i + 1,
+      exported: true,
+      importance: 0,
+    }));
 
     const counts = new Map([
       ["f.ts#a", 1],
@@ -239,7 +249,7 @@ describe("function ranking", () => {
       ["f.ts#d", 0],
     ]);
 
-    const ranked = rankFunctions(node, counts, ["", "", "", ""]);
+    const ranked = rankFunctions(declarations, counts, ["", "", "", ""]);
     assert.equal(ranked.length, 3);
     assert.deepEqual(ranked.map((r) => r.symbol.name), ["b", "c", "a"]);
   });
@@ -343,12 +353,12 @@ describe("summarizeGraph — against a fake model", () => {
     const backend = new FakeBackend();
     await summarizeGraph(graph, { root: fixture.root, cacheDir, backend });
 
-    const hub = graph.nodes.find((n) => n.path === "hub.ts");
-    const symbol = hub?.functions.find((f) => f.qualifiedName === "sharedHelper");
-    assert.ok(symbol?.summary, "the symbol on the file node should carry a summary");
+    const declaration = graph.functionNodes.find((f) => f.id === "hub.ts#sharedHelper");
+    assert.ok(declaration?.summary, "the declaration should carry a summary");
 
-    const twin = graph.functionNodes.find((f) => f.id === "hub.ts#sharedHelper");
-    assert.equal(twin?.summary, symbol.summary, "the function-graph twin should match");
+    // The file node references it by id; there is no second copy to fall out of step.
+    const hub = graph.nodes.find((n) => n.path === "hub.ts");
+    assert.ok(hub?.functions.includes("hub.ts#sharedHelper"));
   });
 
   it("only summarises the top N files by importance", async () => {
@@ -447,10 +457,10 @@ describe("summarizeGraph — against a fake model", () => {
       backend,
     });
 
-    const hub = fresh.nodes.find((n) => n.path === "hub.ts");
-    assert.equal(hub?.functions.find((f) => f.name === "sharedHelper")?.summary, "real one");
+    const shared = fresh.functionNodes.find((f) => f.id === "hub.ts#sharedHelper");
+    assert.equal(shared?.summary, "real one");
     assert.ok(
-      !fresh.nodes.some((n) => n.functions.some((f) => f.summary === "hallucinated")),
+      !fresh.functionNodes.some((f) => f.summary === "hallucinated"),
       "a name the file does not declare must not be attached",
     );
   });

@@ -11,6 +11,7 @@ import {
   defaultModelFor,
 } from "../src/llm/provider.js";
 import { EmbeddingsUnsupportedError, type JsonSchema, type LlmProvider, type Preflight } from "../src/llm/types.js";
+import { resolveFunctions } from "../src/graph/lookup.js";
 import { summarizeGraph } from "../src/summarize/index.js";
 import { buildFilePrompt, SUMMARY_SCHEMA } from "../src/summarize/prompt.js";
 import { ask } from "../src/rag/ask.js";
@@ -255,7 +256,10 @@ describe("prompts are shared across providers", () => {
 
     const node = graph.nodes[0]!;
     const source = await readSource(fixture.root, node.path);
-    const header = buildFilePrompt(node, source, []).split("\n\nSummarise")[0]!.split("\n\nSource:")[0]!;
+    const declarations = resolveFunctions(graph, node);
+    const header = buildFilePrompt(node, declarations, source, [])
+      .split("\n\nSummarise")[0]!
+      .split("\n\nSource:")[0]!;
 
     assert.ok(
       backend.prompts[0]!.startsWith(header),
