@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyze, writeGraph } from "@synapse/core";
-import { createServer } from "@synapse/server";
+import { createServer, type AnalysisState } from "@synapse/server";
 
 export interface ServeOptions {
   root: string;
@@ -61,19 +61,8 @@ export async function serve(options: ServeOptions): Promise<void> {
     hasGraph = false;
   }
 
-  if (!hasGraph) {
-    console.error(`No graph at ${graphFile} — analysing ${options.root} first …`);
-    const graph = await analyze(options.root, {
-      cacheDir: options.cacheDir,
-      model: options.model,
-      ollamaUrl: options.ollamaUrl,
-      skipSummarize: options.skipSummarize,
-      summarizeTop: options.summarizeTop,
-      onProgress: (message) => console.error(`  ${message}`),
-    });
-    await writeGraph(graph, options.cacheDir);
-    console.error(`Wrote ${graphFile}`);
-  }
+  // Mutable so /api/status can read it on every request.
+  const analysis: AnalysisState = { running: !hasGraph };
 
   const webDist = await findWebDist();
   if (!webDist) {
@@ -90,6 +79,7 @@ export async function serve(options: ServeOptions): Promise<void> {
     model: options.model,
     embedModel: options.embedModel,
     ollamaUrl: options.ollamaUrl,
+    getAnalysis: () => analysis,
   });
 
   await app.listen({ port: options.port, host: options.host });
@@ -101,6 +91,38 @@ export async function serve(options: ServeOptions): Promise<void> {
   console.log("\nPress Ctrl+C to stop.");
 
   if (webDist && !options.noOpen) openBrowser(url);
+
+  // The first analysis runs *after* the server is listening, not before it. Summarising
+  // a repo takes minutes on a local model, and blocking the listen until it finished
+  // meant the browser opened on a dead port and the UI's "analysing" state could never
+  // be reached. Now /api/status answers immediately and reports progress.
+  if (!hasGraph) {
+    console.error(`No graph at ${graphFile} — analysing ${options.root} in the background …`);
+
+    void (async () => {
+      try {
+        const graph = await analyze(options.root, {
+          cacheDir: options.cacheDir,
+          model: options.model,
+          ollamaUrl: options.ollamaUrl,
+          skipSummarize: options.skipSummarize,
+          summarizeTop: options.summarizeTop,
+          onProgress: (message) => {
+            analysis.message = message;
+            console.error(`  ${message}`);
+          },
+        });
+        await writeGraph(graph, options.cacheDir);
+        console.error(`Wrote ${graphFile}`);
+      } catch (error) {
+        analysis.error = error instanceof Error ? error.message : String(error);
+        console.error(`\nAnalysis failed: ${analysis.error}`);
+      } finally {
+        analysis.running = false;
+        analysis.message = undefined;
+      }
+    })();
+  }
 
   // Shut down cleanly so the port is released rather than left in TIME_WAIT on restart.
   for (const signal of ["SIGINT", "SIGTERM"] as const) {

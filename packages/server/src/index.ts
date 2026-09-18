@@ -24,6 +24,20 @@ export interface ServerConfig {
   embedModel?: string;
   ollamaUrl?: string;
   logger?: boolean;
+  /**
+   * Reports the state of an analysis running in the background. The server starts
+   * listening before the first analysis finishes so the UI can show progress, so it
+   * needs a way to say "there is no graph yet, but one is on its way".
+   */
+  getAnalysis?: () => AnalysisState;
+}
+
+export interface AnalysisState {
+  running: boolean;
+  /** Latest progress line from the analysis pipeline. */
+  message?: string;
+  /** Set when the analysis failed; the UI shows this instead of spinning forever. */
+  error?: string;
 }
 
 /** What the UI needs to decide between rendering, a loading state, or remediation. */
@@ -33,6 +47,7 @@ export interface StatusResponse {
   chatModel: { name: string; available: boolean; message?: string };
   embedModel: { name: string; available: boolean; message?: string };
   graph: { exists: boolean; fileCount?: number; generatedAt?: number | string };
+  analysis: AnalysisState;
   index: { exists: boolean; chunks?: number; dim?: number };
   /** True when /api/ask can be expected to work right now. */
   canAsk: boolean;
@@ -98,6 +113,7 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
       graph: graph
         ? { exists: true, fileCount: graph.stats.fileCount, generatedAt: graph.generatedAt }
         : { exists: false },
+      analysis: config.getAnalysis?.() ?? { running: false },
       index: store.size > 0 ? { exists: true, chunks: store.size, dim: store.dim } : { exists: false },
       canAsk: chat.ok && embed.ok && graph !== undefined,
     };

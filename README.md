@@ -183,8 +183,12 @@ per-comparison normalisation is needed.
 
 ## The UI
 
-`synapse serve` runs an analysis if there is no graph yet, then serves a Fastify API and
-the built React app. The server is deliberately thin — four routes, each of which reads a
+`synapse serve` starts listening immediately, then runs an analysis in the background if
+there is no graph yet, serving a Fastify API and the built React app. It listens first on
+purpose: summarising a repo takes minutes on a local model, and blocking the listen until
+it finished meant the browser opened on a dead port. `/api/status` reports analysis
+progress so the UI shows a live loading state and swaps to the graph when it lands, with
+no reload. The server is deliberately thin — four routes, each of which reads a
 file or calls one core function and serialises the result:
 
 | Route | What it does |

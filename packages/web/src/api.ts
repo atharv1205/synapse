@@ -7,6 +7,7 @@ export interface Status {
   chatModel: { name: string; available: boolean; message?: string };
   embedModel: { name: string; available: boolean; message?: string };
   graph: { exists: boolean; fileCount?: number; generatedAt?: string };
+  analysis: { running: boolean; message?: string; error?: string };
   index: { exists: boolean; chunks?: number; dim?: number };
   canAsk: boolean;
 }

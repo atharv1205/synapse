@@ -36,14 +36,41 @@ export function StatusGate({ status, error, onRetry }: StatusGateProps): JSX.Ele
   }
 
   if (!status.graph.exists) {
+    // An analysis that died leaves no graph and never will, so say so rather than spin.
+    if (status.analysis.error) {
+      return (
+        <Splash title="The analysis failed">
+          <pre className="remediation">{status.analysis.error}</pre>
+          <button className="primary" onClick={onRetry}>
+            Check again
+          </button>
+        </Splash>
+      );
+    }
+
+    if (!status.analysis.running) {
+      return (
+        <Splash title="No graph for this repository">
+          <p className="muted">
+            Nothing has been analysed into <code>.synapse/graph.json</code> yet.
+          </p>
+          <pre className="remediation">synapse analyze {status.root}</pre>
+          <button className="primary" onClick={onRetry}>
+            Check again
+          </button>
+        </Splash>
+      );
+    }
+
     return (
       <Splash title="Analysing repository">
         <Spinner />
         <p className="muted">
           Parsing <code>{status.root}</code>, building the dependency graph and measuring git
           churn. This runs once; the result is cached in <code>.synapse/graph.json</code>.
+          Summarising with a local model is the slow part.
         </p>
-        <button onClick={onRetry}>Check again</button>
+        {status.analysis.message && <p className="progress">{status.analysis.message}</p>}
       </Splash>
     );
   }
