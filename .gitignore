@@ -3,3 +3,4 @@ dist/
 *.tsbuildinfo
 .synapse/
 .DS_Store
+.turbo/

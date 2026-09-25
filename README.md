@@ -9,7 +9,7 @@ graph of its files and functions, scored by how important each one is.
 
 ```bash
 npm install
-npm run build
+npm run build    # turbo run build: every package in dependency order, cached locally
 node packages/cli/dist/src/index.js analyze .
 ```
 
@@ -29,7 +29,7 @@ node packages/cli/dist/src/index.js ask "what does the import resolver handle?" 
 Or explore it in 3D:
 
 ```bash
-npm run build:all
+npm run build
 node packages/cli/dist/src/index.js serve .
 ```
 
@@ -425,3 +425,7 @@ remediation rather than throwing.
 - Embeddings need a model built for them. Asking a chat model to embed fails, because
   Ollama only starts embedding-capable runners for embedding models; `synapse index`
   detects this and names the fix.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

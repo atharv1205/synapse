@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { RepoGraph } from "@synapse/core";
 import { functionIndex, functionsOf } from "./graph";
 import { api, ApiError, type Status } from "./api";
-import { computeLayout } from "./layout";
 import { AskPanel } from "./components/AskPanel";
 import { GraphScene, type ColorMode } from "./components/GraphScene";
 import { NodeDetails } from "./components/NodeDetails";
-import { StatusBanner, StatusGate } from "./components/StatusGate";
+import { Splash, Spinner, StatusBanner, StatusGate } from "./components/StatusGate";
 import { Toolbar } from "./components/Toolbar";
+import { useLayout } from "./useLayout";
 
 /**
  * How many files the view aims to show prominently on load, so a large repo opens on
@@ -66,8 +66,8 @@ export function App() {
     })();
   }, [status?.graph.exists, graph]);
 
-  // The layout is expensive and deterministic, so it runs once per graph.
-  const layout = useMemo(() => (graph ? computeLayout(graph) : undefined), [graph]);
+  // The layout is expensive and deterministic, so it runs once per graph, off the main thread.
+  const { layout, progress: layoutProgress, error: layoutError } = useLayout(graph);
 
   /** Importance of every node, descending — the rank ladder the slider indexes into. */
   const ranked = useMemo(
@@ -149,25 +149,36 @@ export function App() {
   const gate = StatusGate({ status, error: statusError, onRetry: () => void refreshStatus() });
   if (gate) return gate;
 
-  if (graphError) {
+  if (graphError || layoutError) {
     return (
-      <div className="splash">
-        <div className="splash-card">
-          <h1>Could not load the graph</h1>
-          <pre className="remediation">{graphError}</pre>
-        </div>
-      </div>
+      <Splash title={graphError ? "Could not load the graph" : "Could not lay out the graph"}>
+        <pre className="remediation">{graphError ?? layoutError}</pre>
+      </Splash>
+    );
+  }
+
+  if (graph && !layout && layoutProgress) {
+    const { tick, total } = layoutProgress;
+    return (
+      <Splash title={`Laying out ${graph.nodes.length.toLocaleString()} files`}>
+        <Spinner />
+        <p className="muted">
+          Settling node positions with a force simulation. This runs once per load, in the
+          background; large repositories take a while.
+        </p>
+        <progress className="layout-progress" value={tick} max={total} />
+        <p className="progress">
+          Tick {tick} of {total} · {Math.floor((tick / total) * 100)}%
+        </p>
+      </Splash>
     );
   }
 
   if (!graph || !layout) {
     return (
-      <div className="splash">
-        <div className="splash-card">
-          <h1>Loading graph …</h1>
-          <div className="spinner" aria-label="Loading" />
-        </div>
-      </div>
+      <Splash title="Loading graph …">
+        <Spinner />
+      </Splash>
     );
   }
 

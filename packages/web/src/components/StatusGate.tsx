@@ -129,7 +129,7 @@ function Banner({
   );
 }
 
-function Splash({ title, children }: { title: string; children?: React.ReactNode }) {
+export function Splash({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <div className="splash">
       <div className="splash-card">
@@ -140,6 +140,6 @@ function Splash({ title, children }: { title: string; children?: React.ReactNode
   );
 }
 
-function Spinner() {
+export function Spinner() {
   return <div className="spinner" aria-label="Loading" />;
 }

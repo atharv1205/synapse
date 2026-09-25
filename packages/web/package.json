@@ -1,6 +1,7 @@
 {
   "name": "@synapse/web",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "description": "3D graph viewer and Q&A UI for Synapse.",

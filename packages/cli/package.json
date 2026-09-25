@@ -1,8 +1,12 @@
 {
   "name": "@synapse/cli",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
+  "scripts": {
+    "build": "tsc --build"
+  },
   "bin": {
     "synapse": "./dist/src/index.js"
   },
