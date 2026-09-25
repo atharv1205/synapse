@@ -14,7 +14,7 @@
     "build": "turbo run build",
     "clean": "tsc --build --clean",
     "test": "turbo run test",
-    "analyze": "node packages/cli/dist/index.js analyze",
+    "analyze": "node packages/cli/dist/src/index.js analyze",
     "build:web": "turbo run build --filter=@synapse/web",
     "dev:web": "npm run dev --workspace @synapse/web"
   },
