@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { RepoGraph } from "@synapse/core";
 import { functionIndex, functionsOf } from "./graph";
-import { api, ApiError, type Status } from "./api";
+import { api, ApiError, repoNameOf, type Status } from "./api";
 import { AskPanel } from "./components/AskPanel";
 import { GraphScene, type ColorMode } from "./components/GraphScene";
 import { NodeDetails } from "./components/NodeDetails";
 import { Splash, Spinner, StatusBanner, StatusGate } from "./components/StatusGate";
 import { Toolbar } from "./components/Toolbar";
 import { useLayout } from "./useLayout";
+import "./styles/app.css";
 
 /**
  * How many files the view aims to show prominently on load, so a large repo opens on
@@ -47,6 +48,10 @@ export function App() {
   useEffect(() => {
     void refreshStatus();
   }, [refreshStatus]);
+
+  useEffect(() => {
+    document.title = status ? `${repoNameOf(status.root)}: Synapse` : "Synapse";
+  }, [status]);
 
   // Poll only while there is no graph yet — once it exists there is nothing to wait for.
   useEffect(() => {
@@ -193,7 +198,11 @@ export function App() {
 
   return (
     <div className="app">
+      <h1 className="visually-hidden">
+        {status ? `${repoNameOf(status.root)} dependency graph` : "Dependency graph"}
+      </h1>
       <Toolbar
+        repoName={status ? repoNameOf(status.root) : undefined}
         fileCount={layout.nodes.length}
         visibleCount={visibleCount}
         topPercent={topPercent}

@@ -1,0 +1,8 @@
+# The overview page is the only public content. /graph is the local explorer, which
+# needs a running `synapse serve` and has nothing to index on a static host.
+User-agent: *
+Allow: /
+Disallow: /graph
+
+# Add once the site has a domain:
+# Sitemap: https://<domain>/sitemap.xml

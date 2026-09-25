@@ -326,9 +326,18 @@ Nodes are sized and coloured by the importance already in `graph.json` — nothi
 recomputed client-side. Edge direction is shown by a per-vertex colour gradient, dim at
 the importer and bright at the imported file; arrowheads at this density would be noise.
 
-The force layout runs to completion before the first frame rather than animating.
-`d3-force-3d` runs on the main thread, so animating it on a few thousand nodes janks
-badly, and a settling graph is harder to read than a settled one.
+The force layout runs to completion in a Web Worker before the first frame, rather than
+animating. Only flat typed arrays cross to the worker and back, so the page stays
+responsive and shows tick progress while a large graph settles — on home-assistant/core
+the main thread's longest task during layout went from 36 seconds to under 50ms — and a
+settled graph is easier to read than a settling one.
+
+**Pages.** The app has two: `/` introduces Synapse, with a live 3D graph of Synapse's own
+source, the pipeline, and the setup steps; `/graph` is the explorer, and `serve` opens it
+directly. Each page is its own chunk, so the overview never downloads the explorer's
+panels. When a server answers `/api/status`, the overview offers to open the repository
+it is serving; hosted statically, it points at the setup steps instead. The GitHub URL
+both pages link to lives in `packages/web/src/site.ts`.
 
 Clicking a node opens its path, summary, metrics and top functions, with a button that
 pre-fills a question about it. The Q&A panel is always available; clicking a cited source

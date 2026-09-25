@@ -4,3 +4,6 @@ dist/
 .synapse/
 .DS_Store
 .turbo/
+.claude/
+.env
+.env.*

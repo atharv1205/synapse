@@ -7,10 +7,13 @@
   "description": "3D graph viewer and Q&A UI for Synapse.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "build": "tsc -b && vite build && node scripts/compress.mjs",
+    "preview": "vite preview",
+    "sample-graph": "node scripts/sample-graph.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/geologica": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@react-three/drei": "^9.114.0",
     "@react-three/fiber": "^8.17.0",
     "d3-force-3d": "^3.0.5",

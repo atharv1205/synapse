@@ -1,0 +1,551 @@
+/*
+ * The landing page. Everything is scoped under .landing, for the same reason the tool
+ * scopes under .app: both sheets stay loaded once visited.
+ *
+ * The page spends its boldness in one place, the live graph in the hero. Everything
+ * else is hairline rules and type on the darkfield, with no cards and no decoration.
+ */
+
+.landing {
+  --shell: 1180px;
+  --gutter: 24px;
+  overflow-x: clip;
+}
+
+.landing .shell {
+  width: 100%;
+  max-width: calc(var(--shell) + 2 * var(--gutter));
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.landing h1,
+.landing h2,
+.landing h3 {
+  font-variation-settings: "SHRP" 100;
+  text-wrap: balance;
+}
+
+.landing code {
+  font-size: 0.88em;
+  color: var(--cyan);
+  white-space: nowrap;
+}
+
+/* --- navigation ---------------------------------------------------------- */
+
+.landing .nav {
+  border-bottom: 1px solid var(--edge);
+}
+
+.landing .nav-row {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  height: 64px;
+}
+
+.landing .wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-right: auto;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  font-variation-settings: "SHRP" 100;
+}
+
+.landing .mark {
+  width: 24px;
+  height: 24px;
+}
+
+.landing .nav-links {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  font-size: 14px;
+}
+
+.landing .nav-links a,
+.landing .footer a {
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: color 160ms var(--ease-out);
+}
+
+.landing .nav-links a:hover,
+.landing .footer a:hover {
+  color: var(--text);
+}
+
+.landing .nav-github {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* --- hero ---------------------------------------------------------------- */
+
+.landing .hero {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  align-items: center;
+  gap: 32px;
+  min-height: min(calc(100vh - 64px), 780px);
+  padding-block: 56px 72px;
+}
+
+.landing .hero h1 {
+  margin: 0;
+  max-width: 13ch;
+  font-size: clamp(2.6rem, 5.4vw, 4.4rem);
+  font-weight: 620;
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+}
+
+.landing .lead {
+  max-width: 34em;
+  margin: 24px 0 0;
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.landing .hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 36px;
+}
+
+.landing .hero-actions .button {
+  min-height: 44px;
+  padding-inline: 20px;
+  font-size: 15px;
+}
+
+.landing .hero-status {
+  min-height: 1.5em;
+  margin: 16px 0 0;
+  font-size: 13.5px;
+  color: var(--text-faint);
+}
+
+.landing .hero-figure {
+  margin: 0;
+  min-width: 0;
+}
+
+.landing .hero-graph,
+.landing .hero-figure-pending {
+  height: clamp(360px, 64vh, 620px);
+}
+
+.landing .hero-graph {
+  opacity: 0;
+  filter: blur(14px) saturate(0.4);
+  transform: scale(0.97);
+  transition:
+    opacity 1400ms var(--ease-out),
+    filter 1600ms var(--ease-out),
+    transform 1800ms var(--ease-out);
+  cursor: grab;
+}
+
+.landing .hero-graph:active {
+  cursor: grabbing;
+}
+
+.landing .hero-graph.is-shown {
+  opacity: 1;
+  filter: none;
+  transform: none;
+}
+
+.landing .hero-figure figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.landing .ramp {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.landing .ramp-bar {
+  width: 88px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--importance-ramp);
+}
+
+/* --- sections ------------------------------------------------------------ */
+
+.landing .section {
+  padding-block: 104px 24px;
+}
+
+.landing .section-head {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: 32px;
+  align-items: end;
+  margin-bottom: 48px;
+}
+
+.landing .section-head h2 {
+  margin: 0;
+  font-size: clamp(1.8rem, 3.2vw, 2.5rem);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.028em;
+}
+
+.landing .section-head p {
+  max-width: 36em;
+  margin: 0;
+  color: var(--text-dim);
+}
+
+/*
+ * The pipeline reads left to right along one line, the way a signal crosses a
+ * synapse. Each stage's node takes the next stain on the importance ramp, since each
+ * stage refines the data a step further toward a ranked answer.
+ */
+.landing .pipeline {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 28px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  position: relative;
+}
+
+.landing .pipeline::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, var(--stain-low), var(--cyan) 30%, var(--green) 65%, var(--amber));
+  opacity: 0.55;
+}
+
+.landing .pipeline li {
+  position: relative;
+  padding-top: 32px;
+}
+
+.landing .pipeline li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--stage, var(--cyan));
+  box-shadow: 0 0 14px 1px color-mix(in srgb, var(--stage, var(--cyan)) 55%, transparent);
+}
+
+.landing .pipeline li:nth-child(1) { --stage: var(--stain-low); }
+.landing .pipeline li:nth-child(2) { --stage: var(--cyan); }
+.landing .pipeline li:nth-child(3) { --stage: color-mix(in srgb, var(--cyan) 50%, var(--green)); }
+.landing .pipeline li:nth-child(4) { --stage: var(--green); }
+.landing .pipeline li:nth-child(5) { --stage: var(--amber); }
+
+.landing .pipeline h3,
+.landing .steps h3 {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.landing .pipeline p {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--text-dim);
+}
+
+/* --- features: a figure legend, term against explanation ----------------- */
+
+.landing .features {
+  margin: 0;
+  border-bottom: 1px solid var(--edge);
+}
+
+.landing .features > div {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: 32px;
+  padding-block: 24px;
+  border-top: 1px solid var(--edge);
+}
+
+.landing .features dt {
+  font-size: 18px;
+  font-weight: 560;
+  letter-spacing: -0.01em;
+}
+
+.landing .features dd {
+  max-width: 36em;
+  margin: 0;
+  color: var(--text-dim);
+}
+
+/* --- usage steps: a real sequence, so it is numbered --------------------- */
+
+.landing .steps {
+  display: grid;
+  gap: 40px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+/* The third row takes up whatever height the command block adds, so the heading and
+   its description stay together instead of being pushed apart by a tall command. */
+.landing .steps > li {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  grid-template-rows: auto auto 1fr;
+  gap: 8px 32px;
+  counter-increment: step;
+}
+
+.landing .steps h3 {
+  grid-column: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.landing .steps h3::before {
+  content: counter(step);
+  min-width: 1ch;
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--amber);
+}
+
+.landing .steps p {
+  grid-column: 1;
+  max-width: 30em;
+  margin: 0;
+  padding-left: calc(1ch + 14px);
+  font-size: 14.5px;
+  color: var(--text-dim);
+}
+
+.landing .steps .command {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+}
+
+/* --- command blocks ------------------------------------------------------ */
+
+.landing .command {
+  position: relative;
+  min-width: 0;
+  background: color-mix(in srgb, black 22%, var(--field));
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-m);
+}
+
+.landing .command pre {
+  margin: 0;
+  padding: 16px 96px 16px 18px;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+/* Long commands wrap rather than scroll out of sight, with the prompt hanging in the
+   margin so a wrapped line is visibly a continuation. Copying uses the original text. */
+.landing .command code {
+  display: block;
+  padding-left: 2ch;
+  text-indent: -2ch;
+  font-size: inherit;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.landing .command code::before {
+  content: "$ ";
+  color: var(--text-faint);
+  user-select: none;
+}
+
+.landing .command-copy {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: var(--control);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  transition:
+    color 160ms var(--ease-out),
+    border-color 160ms var(--ease-out);
+}
+
+.landing .command-copy:hover {
+  color: var(--text);
+  border-color: var(--edge-strong);
+}
+
+.landing .command-copy .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* --- footer -------------------------------------------------------------- */
+
+.landing .footer {
+  margin-top: 104px;
+  border-top: 1px solid var(--edge);
+}
+
+.landing .footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-block: 28px;
+  font-size: 13.5px;
+  color: var(--text-faint);
+}
+
+/* --- not found ----------------------------------------------------------- */
+
+.not-found main {
+  padding-block: 20vh;
+}
+
+.not-found h1 {
+  margin: 0;
+  font-size: clamp(1.8rem, 3.2vw, 2.5rem);
+  font-weight: 600;
+  letter-spacing: -0.028em;
+  word-break: break-word;
+}
+
+.not-found a {
+  color: var(--cyan);
+}
+
+/* --- narrow screens ------------------------------------------------------ */
+
+@media (max-width: 960px) {
+  .landing .hero,
+  .landing .section-head,
+  .landing .features > div,
+  .landing .steps > li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .landing .hero {
+    min-height: 0;
+    padding-block: 40px 24px;
+  }
+
+  .landing .hero-graph,
+  .landing .hero-figure-pending {
+    height: clamp(300px, 52vh, 460px);
+  }
+
+  .landing .section-head {
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+
+  .landing .features > div {
+    gap: 6px;
+  }
+
+  .landing .steps .command {
+    grid-column: 1;
+    grid-row: auto;
+    margin-top: 6px;
+  }
+
+  /* The pipeline turns vertical: the line runs down the left edge. */
+  .landing .pipeline {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .landing .pipeline::before {
+    top: 6px;
+    bottom: 6px;
+    left: 6px;
+    right: auto;
+    width: 1px;
+    height: auto;
+    background: linear-gradient(180deg, var(--stain-low), var(--cyan) 30%, var(--green) 65%, var(--amber));
+  }
+
+  .landing .pipeline li {
+    padding: 0 0 0 32px;
+  }
+}
+
+@media (max-width: 640px) {
+  .landing {
+    --gutter: 16px;
+  }
+
+  .landing .nav-row {
+    gap: 16px;
+  }
+
+  .landing .nav-links a:not(.nav-github) {
+    display: none;
+  }
+
+  .landing .nav-open {
+    display: none;
+  }
+
+  .landing .section {
+    padding-block: 72px 16px;
+  }
+
+  .landing .lead {
+    font-size: 16.5px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing .hero-graph {
+    filter: none;
+    transform: none;
+  }
+}

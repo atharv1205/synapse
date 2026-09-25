@@ -1,4 +1,5 @@
-import type { FileNode, FunctionNode } from "@synapse/core";
+import type { FileNode, FunctionNode, Language } from "@synapse/core";
+import { CloseIcon } from "./icons";
 
 export interface NodeDetailsProps {
   node: FileNode;
@@ -6,6 +7,17 @@ export interface NodeDetailsProps {
   declarations: FunctionNode[];
   onAskAbout(question: string): void;
   onClose(): void;
+}
+
+const LANGUAGE_NAMES: Record<Language, string> = {
+  typescript: "TypeScript",
+  tsx: "TSX",
+  javascript: "JavaScript",
+  python: "Python",
+};
+
+function languageName(language: Language): string {
+  return LANGUAGE_NAMES[language] ?? language;
 }
 
 /** The question the "Ask about this file" button pre-fills. */
@@ -23,11 +35,13 @@ export function NodeDetails({ node, declarations, onAskAbout, onClose }: NodeDet
     <aside className="panel panel-node">
       <header className="panel-head">
         <div>
-          <p className="eyebrow">{node.language}</p>
-          <h2 title={node.path}>{node.path}</h2>
+          <h2 className="node-path" title={node.path}>
+            {node.path}
+          </h2>
+          <p className="node-meta">{languageName(node.language)} file</p>
         </div>
         <button className="icon-button" onClick={onClose} aria-label="Close details">
-          ×
+          <CloseIcon />
         </button>
       </header>
 

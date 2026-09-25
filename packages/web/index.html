@@ -3,10 +3,44 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Synapse</title>
+    <title>Synapse: map a codebase by what it depends on</title>
+    <meta
+      name="description"
+      content="Synapse maps a codebase into a ranked graph of its files and functions, explorable in 3D, with questions answered from cited sources. Runs locally."
+    />
+    <meta name="theme-color" content="#0b1020" />
+    <meta name="color-scheme" content="dark" />
+
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!--
+      Social previews. og:url, og:image and <link rel="canonical"> need absolute URLs, so
+      they are added once the site has a domain; see packages/web/README.md.
+    -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Synapse" />
+    <meta property="og:title" content="Synapse: map a codebase by what it depends on" />
+    <meta
+      property="og:description"
+      content="A ranked 3D graph of any repository's files and functions, with questions answered from cited sources. Runs locally."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Synapse: map a codebase by what it depends on" />
+    <meta
+      name="twitter:description"
+      content="A ranked 3D graph of any repository's files and functions, with questions answered from cited sources. Runs locally."
+    />
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <p style="max-width: 36em; margin: 20vh auto; padding: 0 24px; font-family: system-ui, sans-serif; color: #e6eaf2; line-height: 1.6">
+        Synapse needs JavaScript to draw the graph. Enable it and reload, or read the README
+        in the repository for setup instructions.
+      </p>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

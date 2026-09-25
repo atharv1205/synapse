@@ -1,0 +1,200 @@
+/*
+ * Shared by the landing page and the tool.
+ *
+ * The palette is a darkfield microscope slide: a deep blue-violet field, and three
+ * fluorescent stains that encode importance, low to high — cyan, green, amber. The
+ * stains are data colours first; cyan doubles as the interactive accent because it is
+ * the one a reader already meets on every ordinary node.
+ *
+ * Fonts are self-hosted from @fontsource-variable, so the tool renders the same offline
+ * and never calls out to a font CDN. Geologica carries a sharpness axis, used only on
+ * display type; body text stays on the default soft cut.
+ */
+@import "@fontsource-variable/geologica/shrp.css";
+@import "@fontsource-variable/jetbrains-mono/wght.css";
+
+:root {
+  --field: #0b1020;
+  --raised: #121a33;
+  --control: #18213f;
+  --control-hover: #1f2a4f;
+  --edge: #243056;
+  --edge-strong: #34416e;
+
+  --text: #e6eaf2;
+  --text-dim: #a6afc8;
+  --text-faint: #8590ae;
+
+  --stain-low: #2b6f88;
+  --cyan: #4fd1e8;
+  --green: #7be08a;
+  --amber: #f2b84b;
+  --error: #ff8a98;
+  --error-field: #2a1424;
+
+  --accent: var(--cyan);
+  --importance-ramp: linear-gradient(90deg, var(--stain-low), var(--cyan) 35%, var(--green) 65%, var(--amber));
+
+  --font: "Geologica Variable", ui-sans-serif, system-ui, sans-serif;
+  --mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--field);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  caret-color: var(--accent);
+  font-variation-settings: "SHRP" 0;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--cyan) 32%, transparent);
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+a {
+  color: inherit;
+  text-underline-offset: 0.22em;
+  text-decoration-thickness: 1px;
+}
+
+code,
+kbd,
+pre {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--edge-strong) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--edge-strong);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Present for screen readers and the document outline, absent from the layout. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- buttons shared by both surfaces ------------------------------------- */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 16px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 550;
+  color: var(--text);
+  text-decoration: none;
+  background: var(--control);
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  transition:
+    background-color 160ms var(--ease-out),
+    border-color 160ms var(--ease-out);
+}
+
+.button:hover {
+  background: var(--control-hover);
+  border-color: color-mix(in srgb, var(--cyan) 45%, var(--edge-strong));
+}
+
+.button-primary {
+  color: var(--field);
+  background: var(--cyan);
+  border-color: var(--cyan);
+}
+
+.button-primary:hover {
+  background: color-mix(in srgb, var(--cyan) 86%, white);
+  border-color: color-mix(in srgb, var(--cyan) 86%, white);
+}
+
+.icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+}
+
+/* An informational spinner used by the loading states. */
+.spinner {
+  width: 26px;
+  height: 26px;
+  margin: 14px auto;
+  border: 2px solid var(--edge);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}

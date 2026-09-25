@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyze, writeGraph, type ProviderName } from "@synapse/core";
-import { createServer, type AnalysisState } from "@synapse/server";
+import { createServer, isLoopback, type AnalysisState } from "@synapse/server";
 
 export interface ServeOptions {
   root: string;
@@ -79,6 +79,7 @@ export async function serve(options: ServeOptions): Promise<void> {
     root: options.root,
     cacheDir: options.cacheDir,
     webDist,
+    host: options.host,
     provider: options.provider,
     model: options.model,
     embedModel: options.embedModel,
@@ -90,11 +91,21 @@ export async function serve(options: ServeOptions): Promise<void> {
 
   const url = `http://localhost:${options.port}`;
   console.log(`\nSynapse is serving ${options.root}`);
-  console.log(`  ${url}`);
-  console.log(`  API: ${url}/api/status`);
+  console.log(`  Explorer: ${url}/graph`);
+  console.log(`  About:    ${url}/`);
+  console.log(`  API:      ${url}/api/status`);
+  if (!isLoopback(options.host)) {
+    console.log(
+      `\nWarning: listening on ${options.host}, so anyone who can reach this machine can use\n` +
+        "  the API. It has no authentication: they can read the graph and its summaries,\n" +
+        "  and each question they ask runs the model, which costs money on --provider anthropic.",
+    );
+  }
   console.log("\nPress Ctrl+C to stop.");
 
-  if (webDist && !options.noOpen) openBrowser(url);
+  // Straight into the explorer: someone who ran `serve` came to use the tool, and the
+  // landing page at / is one click away from its wordmark.
+  if (webDist && !options.noOpen) openBrowser(`${url}/graph`);
 
   // The first analysis runs *after* the server is listening, not before it. Summarising
   // a repo takes minutes on a local model, and blocking the listen until it finished

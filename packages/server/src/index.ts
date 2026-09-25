@@ -21,6 +21,11 @@ export interface ServerConfig {
   cacheDir: string;
   /** Built web app to serve, if there is one. Omitted in dev, where Vite serves it. */
   webDist?: string;
+  /**
+   * The address the server is bound to. On a loopback address, requests naming any
+   * other host are refused; see `isLoopback` for why.
+   */
+  host?: string;
   provider?: ProviderName;
   model?: string;
   embedModel?: string;
@@ -72,6 +77,52 @@ interface IndexBody {
 }
 
 /**
+ * Client-side routes the web app renders. Anything else that is not a file or an API
+ * route gets the app's not-found page with a real 404, not a soft 200. Keep in step
+ * with the route switch in packages/web/src/main.tsx.
+ */
+const APP_ROUTES = new Set(["/", "/graph"]);
+
+/**
+ * Sent with every response. The page loads nothing from another origin, so the policy
+ * can be `'self'` throughout; inline styles are allowed because React and the 3D canvas
+ * set element style attributes. Framing is refused outright: nothing needs to embed the
+ * explorer, and refusing it rules out clickjacking the Ask and Rebuild buttons.
+ */
+const SECURITY_HEADERS: Record<string, string> = {
+  "content-security-policy": [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "worker-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+  ].join("; "),
+  "x-frame-options": "DENY",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+  "cross-origin-resource-policy": "same-origin",
+};
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
+export function isLoopback(host: string | undefined): boolean {
+  return host === undefined || LOOPBACK_HOSTS.has(host) || host.startsWith("127.");
+}
+
+/** The hostname part of a Host header, without the port, for IPv4, names and [IPv6]. */
+function hostnameOf(header: string | undefined): string {
+  if (!header) return "";
+  if (header.startsWith("[")) return header.slice(0, header.indexOf("]") + 1);
+  return header.split(":")[0] ?? "";
+}
+
+/**
  * The HTTP surface over the analysis core. Every route is a thin wrapper: read a file,
  * or call one core function and serialise what it returns. No scoring, chunking,
  * retrieval or remediation logic lives here — that all belongs to core, and duplicating
@@ -79,6 +130,28 @@ interface IndexBody {
  */
 export async function createServer(config: ServerConfig): Promise<FastifyInstance> {
   const app = Fastify({ logger: config.logger ?? false });
+
+  // DNS rebinding guard. A page on any website can point its own hostname at
+  // 127.0.0.1 and then talk to this server as if it were same-origin, reading the
+  // graph and summaries or starting model calls that cost money on the Anthropic
+  // provider. The browser still sends that website's name in the Host header, so on a
+  // loopback bind anything not addressed to a loopback name is refused. Binding to a
+  // network address is an explicit choice to be reachable, and skips the check.
+  if (isLoopback(config.host)) {
+    app.addHook("onRequest", async (request, reply) => {
+      if (!LOOPBACK_HOSTS.has(hostnameOf(request.headers.host))) {
+        return reply.code(403).send({
+          error: "forbidden-host",
+          message: "Synapse only answers requests addressed to localhost.",
+        });
+      }
+    });
+  }
+
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply.headers(SECURITY_HEADERS);
+    return payload;
+  });
 
   const model = config.model ?? defaultModelFor(config.provider ?? "ollama");
   const embedModel = config.embedModel ?? DEFAULT_EMBED_MODEL;
@@ -212,15 +285,24 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
   });
 
   if (config.webDist) {
-    await app.register(fastifyStatic, { root: config.webDist, prefix: "/" });
+    // The web build writes .br and .gz beside each asset; serving those cuts the page
+    // from about 1MB to about 240KB for any client that is not on loopback.
+    await app.register(fastifyStatic, { root: config.webDist, prefix: "/", preCompressed: true });
 
-    // SPA fallback: any non-API path that is not a real file serves the app shell so
-    // client-side routing works on a hard refresh.
+    // SPA fallback. The app's own routes get the shell so client-side routing survives
+    // a hard refresh. Other page paths get the same shell, which renders the not-found
+    // page, but with a 404 so crawlers and tools see the truth. A missing file such as
+    // /robots.txt or /favicon.ico gets a plain 404 instead of an HTML page.
     app.setNotFoundHandler(async (request, reply) => {
-      if (request.url.startsWith("/api/")) {
-        return reply.code(404).send({ error: "not-found", message: `No route ${request.url}` });
+      const pathname = new URL(request.url, "http://localhost").pathname;
+      if (pathname.startsWith("/api/")) {
+        return reply.code(404).send({ error: "not-found", message: `No route ${pathname}` });
       }
-      return reply.sendFile("index.html");
+      if (path.extname(pathname) !== "") {
+        return reply.code(404).type("text/plain").send("Not found");
+      }
+      const route = pathname.replace(/\/+$/, "") || "/";
+      return reply.code(APP_ROUTES.has(route) ? 200 : 404).sendFile("index.html");
     });
   }
 
