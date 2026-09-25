@@ -1,376 +1,219 @@
 # Synapse
 
-Analyses a codebase — from a GitHub URL or a local folder — and produces a dependency
-graph of its files and functions, scored by how important each one is.
+Map a codebase by what it depends on.
 
-**Status: Phases 0-5b complete.**
+Synapse turns a repository into a graph of its files and functions, ranks every file by
+how much the rest of the code relies on it, and lets you explore the result in 3D or ask
+questions whose answers cite their sources. It runs on your machine: parsing, ranking
+and retrieval are local, and summaries and answers come from a local model unless you
+choose the Anthropic API.
+
+![synapse-map serve on pallets/flask: the terminal run, then the explorer narrowing to the important files, answering a question with cited sources, and flying to one of them](docs/demo.gif)
+
+<sub>Recorded from a real run of the packaged CLI on pallets/flask. The terminal replays that
+run's output with the 21 minutes of summarising sped up, and the model's 29-second wait
+for the answer is shortened; the explorer is otherwise shown at real speed.</sub>
 
 ## Quick start
 
 ```bash
-npm install
-npm run build    # turbo run build: every package in dependency order, cached locally
-node packages/cli/dist/src/index.js analyze .
+npx synapse-map serve https://github.com/pallets/flask
 ```
 
-Or point it at a repo:
+That clones the repository, analyses it, and opens the explorer in your browser. The
+first run is the slow one: on Flask it took 21 minutes on an M2 Pro, nearly all of it
+the local 14B model summarising the 50 most important files. `--summarize-top 10` cuts
+that sharply, `--skip-summarize` removes it, and the result is cached in `.synapse/` in
+the current directory, so the next `serve` is instant.
+
+The same pipeline as separate steps, on a local project:
 
 ```bash
-node packages/cli/dist/src/index.js analyze https://github.com/pallets/itsdangerous
+npx synapse-map analyze ~/code/your-project        # build the ranked graph
+npx synapse-map index --path ~/code/your-project   # embed it for questions
+npx synapse-map ask "where is authentication handled?" --path ~/code/your-project --show-sources
+npx synapse-map serve ~/code/your-project          # explore it in 3D
 ```
 
-Then ask it things:
+`index` is optional: `ask` builds the index itself the first time. The command installs
+as both `synapse-map` and `synapse`, so after `npm install -g synapse-map` either name
+works.
 
-```bash
-ollama pull nomic-embed-text
-node packages/cli/dist/src/index.js ask "what does the import resolver handle?" --show-sources
-```
+## Requirements
 
-Or explore it in 3D:
+- **Node.js 20 or later**, and **git** on your PATH for cloning and history. Node 20
+  reached end of life in April 2026 and one transitive dependency now declares Node 22;
+  it runs on 20, but 22 is the safer choice.
+- **Ollama**, for summaries and questions. Pull the two default models once:
 
-```bash
-npm run build
-node packages/cli/dist/src/index.js serve .
-```
+  ```bash
+  ollama pull qwen2.5:14b-instruct   # summaries and answers
+  ollama pull nomic-embed-text       # embeddings for questions
+  ```
 
-## Layout
+  Without Ollama you still get the full graph and rankings: the analysis reports how to
+  fix it and carries on without summaries, and the explorer disables only questions.
+- **Or `ANTHROPIC_API_KEY`**, to summarise and answer with Claude instead; see
+  [Providers](#providers). Ollama is still needed for `index` and `ask`, because
+  embeddings always stay local.
+- **A C++ toolchain only on uncommon platforms.** tree-sitter ships prebuilt binaries for
+  macOS (arm64 and x64), Linux x64 and Windows x64. Anywhere else, such as Linux on ARM,
+  npm compiles it on install, which needs Python, make and a C++ compiler.
 
-| Package | What it is |
-| --- | --- |
-| `packages/core` | The analysis engine: ingestion, parsing, graph building, scoring, LLM providers |
-| `packages/cli` | The `analyze` command |
-| `packages/server` | Fastify API wrapping the core functions |
-| `packages/web` | React + react-three-fiber 3D viewer and Q&A UI |
-
-## CLI
-
-Three commands: `analyze` builds the graph, `index` builds the embedding index, and
-`ask` answers questions over it. `ask` builds the index itself if one is missing, so
-`index` is only needed to pre-warm.
+## Commands
 
 ```
-synapse analyze <path-or-github-url> [options]
+synapse analyze <path-or-github-url> [options]   Build the graph
+synapse index [path] [options]                   Build/refresh the embedding index
+synapse ask "<question>" [options]               Ask a question about the codebase
+synapse serve [path-or-github-url] [options]     Serve the 3D UI and API
 
+analyze:
   --out <dir>            Where to write graph.json (default: <target>/.synapse)
   --depth <n>            Clone depth when given a URL (default: 200)
-  --token <token>        Credential for a private repository (or GITHUB_TOKEN)
+  --token <token>        Credential for a private repository. Prefer the GITHUB_TOKEN
+                         environment variable, which keeps it out of shell history.
   --top <n>              How many files to list in the summary (default: 10)
   --skip-churn           Skip the git history pass
-
   --skip-summarize       Skip LLM summarisation entirely
-  --model <name>         Ollama model (default: qwen2.5:14b-instruct)
   --summarize-top <n>    How many top files to summarise (default: 50)
-  --ollama-url <url>     Ollama base URL (default: http://localhost:11434)
-
   --json                 Print the graph to stdout instead of writing a file
 
-synapse index [path] [options]
+index:
   --path <dir>           Repo root, for recovering function signatures (default: .)
 
-synapse ask "<question>" [options]
+ask:
   --path <dir>           Repo root (default: .)
   --top-k <n>            How many chunks to retrieve (default: 8)
   --show-sources         List the files and functions the answer drew on
+  --global-rank          Rank purely by similarity, without reserving seats per
+                         chunk kind (file vs function). Off by default.
 
-synapse serve [path] [options]
+serve:
+  --path <dir>           Repo root (default: .)
+  --token <token>        Credential for a private repository, as for analyze
   --port <n>             Port to listen on (default: 4317)
   --host <addr>          Address to bind (default: 127.0.0.1)
   --no-open              Do not open a browser window
+  --skip-summarize       Skip summarisation if a graph has to be built first
 
-Shared by all three:
-  --out <dir>            Where .synapse artefacts live
-  --model <name>         Chat model (default: qwen2.5:14b-instruct)
-  --provider <name>      ollama | anthropic (default: ollama)
-  --model <name>         Chat model (provider-specific default)
+Shared:
+  --out <dir>            Where .synapse artefacts live (default: <path>/.synapse)
+  --provider <name>      ollama | anthropic  (default: ollama)
+  --model <name>         Chat model (default: qwen2.5:14b-instruct,
+                         or claude-opus-5 with --provider anthropic)
   --embed-model <name>   Embedding model (default: nomic-embed-text)
   --ollama-url <url>     Ollama base URL (default: http://localhost:11434)
+  -h, --help             Show this message
+  -v, --version          Print the installed version
 ```
 
-A URL is cloned shallowly into a temp directory and removed when the run finishes.
-A local path is read in place and never modified.
-
-## How it works
-
-**Ingestion.** Walks the tree respecting `.gitignore` at every level, including nested
-ignore files and negation patterns. `node_modules`, `.git`, virtualenvs and build output
-are skipped unconditionally.
-
-**Parsing.** tree-sitter parses JavaScript, TypeScript, TSX and Python, through its
-callback input rather than by handing it a string. The Node binding rejects a string of
-32,768 characters or more with a bare "Invalid argument", which silently cost every file
-above 32KB — 515 of 18,851 on home-assistant/core, weighted toward the largest and
-most-depended-on files, so the gap quietly skewed every importance score. The callback
-form has no such limit, measures no slower, and produces an identical tree, so it is
-used for every file rather than only large ones.
-
-A file that still cannot be read or parsed is recorded in `parseFailures` and counted in
-`stats.parseFailures` instead of being dropped in silence, and the CLI reports it
-loudly. It should always be zero. Per file it
-extracts import statements (ESM, `require`, dynamic `import()`, and Python's `import` /
-`from ... import` including relative forms), function/class/method declarations, and call
-sites attributed to the function that encloses them.
-
-**Resolution.** Import specifiers are resolved against the files actually present in the
-repo. This handles the awkward cases: TypeScript's NodeNext convention of writing
-`./foo.js` to mean `./foo.ts`, extensionless directory imports resolving to `index.*`,
-Python relative imports with multiple leading dots, Python absolute imports under a `src/`
-layout, and bare specifiers that point at sibling workspace packages in a monorepo.
-Anything left over is counted as an external dependency, not invented as a node.
-
-**Scoring.** Two signals, blended 70/30:
-
-- *Centrality* — PageRank over the file graph, with edges pointing importer → imported so
-  that importance flows toward the modules everything depends on.
-- *Churn* — commits touching each file, via `git log --follow`, so a renamed file keeps the
-  history it earned under its old name. Counts are log-compressed before normalising,
-  because commit counts are heavy-tailed and one 400-commit config file would otherwise
-  flatten everything else.
-
-When the target has no git history, churn is dropped and centrality takes the full weight.
-
-The function-level graph is built the same way: nodes are declarations, edges are resolved
-calls, and PageRank over it scores each function. Call resolution is a heuristic — a call
-is matched against declarations in the same file first, then against the file a name was
-imported from. Calls it cannot resolve are dropped rather than guessed at.
-
-**Summarisation.** A local model via Ollama writes a 1-3 sentence summary for each of the
-top `--summarize-top` files, plus one sentence for each file's three most-called
-functions. Only the top files are summarised, because this is the slow step and most of a
-repo is not worth the tokens.
-
-Each prompt carries the file's path, the graph metrics that made it significant (in/out
-degree, churn, size), its declaration list with real signatures, and the first 6000
-characters of source. One structured-output request per file returns the file summary and
-its function summaries together. Function names the file does not actually declare are
-dropped, so a hallucinated name cannot reach the graph.
-
-Results are cached in `.synapse/summaries.json`, keyed by a SHA-256 of the file's path and
-contents and tagged with the model and prompt version. A re-run only calls the model for
-files that actually changed — on this repo a fully cached re-run takes under half a second.
-
-If Ollama is not running or the model is not pulled, the run reports exactly how to fix it
-and continues without summaries. It never takes down the analysis.
-
-**Retrieval.** `ask` embeds the question locally and retrieves the most similar chunks,
-then hands them to the chat model with instructions to answer only from that context and
-to say so when the context falls short.
-
-Retrieval reserves half the results for each chunk kind rather than ranking purely by
-similarity. File chunks carry a summary plus a full declaration list plus metrics, so
-they average about 600 characters against roughly 370 for function chunks. That breadth
-makes them score moderately well against almost anything, and on a global ranking they
-crowd out the shorter function chunks that hold the specific answer. Each kind gets
-floor(k/2) seats; leftover seats go to the best unclaimed chunks of either kind, which
-keeps it sensible when one kind is scarce or k is 1.
-
-This is a variance reducer, not a strict improvement, and it cuts both ways. Asked how a
-file's importance score is calculated, a global ranking returned eight chunks of which
-only two were functions, and `pagerankScores` and `normalizeChurn` both missed the cut;
-balancing promoted them and measurably improved the answer. Asked how import specifiers
-resolve, a global ranking returned six function chunks to two file chunks — function
-chunks genuinely deserved the space there, and balancing pulled them back to four.
-`--global-rank` turns the reservation off when that trade is the wrong one.
-
-The corpus is chunked at two granularities so retrieval can be specific: one chunk per
-file (path, summary, full declaration list, graph metrics) and one chunk per
-individually-summarised function (summary, real signature sliced from source, owning
-file, resolved outgoing calls). Coarse chunks answer "where does X live"; fine chunks
-answer questions about specific behaviour.
-
-Chunks are keyed by a SHA-256 of their own text, the same invalidation rule summaries
-use, so re-indexing only embeds what changed. Changing `--embed-model` invalidates
-everything, because vectors from two models are not comparable.
-
-**The vector store is brute-force cosine over a flat `Float32Array`, deliberately.**
-Synapse indexes one chunk per file plus a few per summarised file, so even a large repo
-lands in the low tens of thousands of chunks. Measured: 3ms per query at 1,000 chunks,
-6ms at 5,000, 24ms at 20,000, 60ms at 50,000. LanceDB was considered and rejected — it
-pulls 134 packages including the OpenAI SDK and `@huggingface/transformers`, which is a
-strange thing to install into a tool whose premise is that nothing leaves your machine.
-The store sits behind a `VectorStore` interface, so swapping in an ANN backend later is
-a contained change.
-
-Vectors are stored unit-length in `.synapse/embeddings.bin` with metadata in
-`.synapse/embeddings.json`, so a dot product *is* the cosine similarity and no
-per-comparison normalisation is needed.
-
-## The graph's shape
-
-`functionNodes` is the single source of truth for declarations; `nodes[].functions`
-holds ids into it. Resolve them with the exported `functionIndex()` and `functionsOf()`
-helpers — build the index once per graph rather than scanning per file.
-
-They used to be full objects in both places, which serialised every declaration twice:
-**31.6MB of pure duplication** on an 18,851-file repo. `version` is `2` for this shape;
-a `version: 1` file has the old duplicated form and should be regenerated.
+A local path is read in place and never modified. A URL is cloned shallowly into a
+temporary directory, analysed, and removed; its artefacts land in `.synapse/` in the
+directory you ran the command from.
 
 ## Providers
 
-Summaries and answers can come from the local Ollama model or from the Anthropic API.
-`--provider anthropic` switches the backend on `analyze`, `ask` and `serve`; the default
-is `ollama` and nothing about the local path changes.
+`--provider anthropic` makes Claude write the summaries and answer questions, on
+`analyze`, `ask` and `serve`. The default is `ollama`, and nothing leaves your machine on
+that path. With `anthropic`, each prompt goes to Anthropic's API, and summarisation
+prompts include up to the first 6,000 characters of each summarised file.
 
-Both clients implement one `LlmProvider` interface, and **the prompts are identical
-either way** — the summarisation prompt, its JSON schema, and the retrieval context
-block are built by the same code and only the transport differs. There is a test that
-runs the same summarisation through both providers and asserts the prompts match byte
-for byte.
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+npx synapse-map serve ~/code/your-project --provider anthropic
+```
+
+The key is read from `ANTHROPIC_API_KEY` and nowhere else, never a flag or a file, so it
+cannot land in shell history or a commit. An unset key fails up front with the command
+that fixes it.
+
+Both providers receive byte-identical prompts: the summarisation prompt, its JSON schema
+and the retrieval context are built by the same code, and a test asserts it. Only the
+transport differs.
 
 **Embeddings are always Ollama.** The Anthropic API has no embeddings endpoint, so
-`ask` and `index` keep embedding locally even under `--provider anthropic`, and Ollama
-has to be running for them. That is stated rather than worked around: the Anthropic
-client's `embed()` throws instead of substituting another model — vectors from two
-models are not comparable, and quietly mixing them would corrupt an index in a way that
-is very hard to notice — and when the two halves differ, an Ollama failure is reported
-with the reason Ollama is still involved:
-
-```
-Could not reach Ollama at http://localhost:59999 (fetch failed).
-  Start it with:  ollama serve
-
-  Answers come from anthropic (claude-opus-5), but embeddings have no anthropic
-  endpoint, so retrieval still uses Ollama (nomic-embed-text). Ollama must be running.
-```
-
-The API key is read from `ANTHROPIC_API_KEY` and nowhere else — never a flag, never a
-file — so it cannot land in shell history or a commit. An unset key fails preflight with
-the command to fix it, exactly like a missing Ollama model does.
+`index` and `ask` embed locally even under `--provider anthropic`. Synapse says so
+rather than quietly swapping in another model, because vectors from two models are not
+comparable and mixing them corrupts an index in a way that is hard to notice.
 
 ## Private repositories
 
-`analyze` and `serve` accept a credential for cloning a private repo, from `--token` or
-the `GITHUB_TOKEN` environment variable. The environment variable is preferred and the
-help says so: a flag lands in shell history and in the process's own argv.
+`analyze` and `serve` clone private repositories with a token from the `GITHUB_TOKEN`
+environment variable, or from `--token`. Prefer the variable: a flag lands in shell
+history and in the process's own argument list.
 
-The token reaches git through the child process environment and is read there by an
-inline credential helper. Three exposures are avoided deliberately:
-
-- **argv** — the token is never an argument, so it cannot be read from `ps` by another
-  user on the machine, and it is never embedded in the URL.
-- **the clone's git config** — because the URL carries no credential, git has nothing to
-  persist into `.git/config`.
-- **the system keychain** — an empty `credential.helper` entry is injected first, which
-  resets the helpers git would otherwise inherit, so a keychain cannot answer instead.
-
-Any `GIT_CONFIG_*` entries already exported are preserved; Synapse's own are appended
-after them rather than overwriting the count.
-
-This one command is run through `execFile` rather than simple-git, because simple-git's
-argv guard rejects credential-helper and `GIT_CONFIG_*` injection outright — which is
-precisely the mechanism that keeps the token out of argv. simple-git still runs the
-churn queries.
-
-Everything user-visible is redacted first. A credential pasted into the URL is stripped
-before the URL is logged, put in an error, or written to `graph.json`, and git's own
-output is scrubbed of the token before it is shown. A failed clone explains what to do
-rather than repeating git's raw text:
-
-```
-Could not clone https://github.com/anthropics/private-repo.
-  If it is private, Synapse needs a token:
-    export GITHUB_TOKEN=ghp_...   (preferred — keeps it out of shell history)
-    or pass --token <token>
-  If it is public, check the URL is spelled correctly.
-  Git said: remote: Repository not found. fatal: repository '…' not found
+```bash
+export GITHUB_TOKEN=ghp_...
+npx synapse-map serve https://github.com/your-org/private-repo
 ```
 
-GitHub answers an unauthenticated request for a private repo with "not found" — the same
-thing it says for a typo — so the message covers both rather than claiming to know which.
+The token reaches git through the child process's environment, read by an inline
+credential helper, so it never appears in argv (where `ps` would show it to other users),
+is never written to the clone's `.git/config`, and cannot be answered by your system
+keychain instead. A credential pasted into the URL itself is stripped before the URL is
+printed, returned by the server, or written to `graph.json`, and git's own error output
+is scrubbed the same way. GitHub answers an unauthenticated request for a private
+repository with "not found", the same as a typo, so a failed clone explains both
+possibilities rather than guessing.
 
-## The UI
+## The explorer
 
-`synapse serve` starts listening immediately, then runs an analysis in the background if
-there is no graph yet, serving a Fastify API and the built React app. It listens first on
-purpose: summarising a repo takes minutes on a local model, and blocking the listen until
-it finished meant the browser opened on a dead port. `/api/status` reports analysis
-progress so the UI shows a live loading state and swaps to the graph when it lands, with
-no reload. The server is deliberately thin — four routes, each of which reads a
-file or calls one core function and serialises the result:
+`serve` starts a local server and opens the explorer at `/graph`. It listens
+immediately and, if the repository has no graph yet, analyses it in the background
+while the page shows live progress, then swaps to the graph without a reload.
 
-| Route | What it does |
-| --- | --- |
-| `GET /api/graph` | Returns `graph.json` |
-| `POST /api/ask` | Calls `ask()`, returns the answer and its sources |
-| `POST /api/index` | Calls `buildIndex()`, returns the report |
-| `GET /api/status` | Reports Ollama, model, graph and index availability |
+- **Nodes** are files, sized and coloured by importance, from dim cyan through green to
+  amber. **Edges** are imports, drawn dim at the importer and bright at the file imported.
+- **The slider** keeps the top percentage of files prominent. Larger repositories open on
+  their most important few hundred files, and every file stays clickable.
+- **Clicking a file** shows its summary, metrics (importance, imports each way, commits,
+  lines) and top functions, with a button that pre-fills a question about it.
+- **Ask** answers from the index and lists its sources; clicking a source flies the
+  camera to that file.
 
-No scoring, chunking, retrieval or remediation logic lives in the server. `/api/status` is
-just core's preflight output, so the remediation the browser shows is the same text the
-CLI prints rather than a second set of wordings to keep in step. When Ollama is down the
-graph still renders and stays fully explorable; only questions are disabled.
+`/` is an overview page for the project, with the explorer one click away.
 
-**Framing.** The camera frames against the 90th percentile of node distance from the
-origin, not the maximum, and its far plane is derived from the scene's true extent
-rather than hardcoded. On an 18,851-node graph the maximum was an outlier statistic —
-25,282 against a median of 1,924 — which put the camera 40,451 units out, past a
-hardcoded far plane of 20,000, and clipped every node in the scene. Node radii scale
-with that framing radius too, so a node is about the same size on screen whatever the
-graph's size; fixed world-unit radii rendered a typical node at 7px on a 26-file repo
-and 0.4px on an 18,851-file one.
-
-**Rendering.** Every node is one instance of a single `InstancedMesh` and every edge is one
-segment of a single `LineSegments` buffer, so the whole graph is two draw calls whatever
-its size. That matters more than node count: a few thousand individual meshes would each
-cost a draw call and tank the framerate long before the data became the problem. The
-importance slider therefore fades and shrinks nodes rather than unmounting them, which
-keeps every file clickable and keeps Q&A sources linkable even when dimmed. Above ~300
-files the view opens pre-set so it starts on the important files.
-
-The slider works in **rank percentile**, not raw importance. PageRank is heavily
-right-skewed — on the 18,851-node graph the top node scored 1.0000 and the 300th scored
-0.0009 — so a linear 0-1 importance slider put every useful value inside its first step,
-leaving about 0.09% of the track usable. Percentile is scale-free: half the track always
-means half the files, whatever the distribution underneath.
-
-Nodes are sized and coloured by the importance already in `graph.json` — nothing is
-recomputed client-side. Edge direction is shown by a per-vertex colour gradient, dim at
-the importer and bright at the imported file; arrowheads at this density would be noise.
-
-The force layout runs to completion in a Web Worker before the first frame, rather than
-animating. Only flat typed arrays cross to the worker and back, so the page stays
-responsive and shows tick progress while a large graph settles — on home-assistant/core
-the main thread's longest task during layout went from 36 seconds to under 50ms — and a
-settled graph is easier to read than a settling one.
-
-**Pages.** The app has two: `/` introduces Synapse, with a live 3D graph of Synapse's own
-source, the pipeline, and the setup steps; `/graph` is the explorer, and `serve` opens it
-directly. Each page is its own chunk, so the overview never downloads the explorer's
-panels. When a server answers `/api/status`, the overview offers to open the repository
-it is serving; hosted statically, it points at the setup steps instead. The GitHub URL
-both pages link to lives in `packages/web/src/site.ts`.
-
-Clicking a node opens its path, summary, metrics and top functions, with a button that
-pre-fills a question about it. The Q&A panel is always available; clicking a cited source
-selects and flies the camera to that node.
+The server binds to `127.0.0.1` by default and only answers requests addressed to
+localhost, which stops a website you visit from reaching it through DNS rebinding. Every
+response carries a strict Content-Security-Policy and no-framing headers. Binding to
+another address with `--host` is an explicit choice to be reachable, and prints a warning:
+the API has no authentication, and questions run the model, which costs money on
+`--provider anthropic`.
 
 ## Output
 
-Written to `.synapse/graph.json`:
+Everything is written to `.synapse/` beside the analysed project, or in the current
+directory for a URL:
+
+| File | What it holds |
+| --- | --- |
+| `graph.json` | The ranked graph: files, functions, imports, calls, metrics and summaries |
+| `summaries.json` | Cached summaries, keyed by a hash of each file's path and contents |
+| `embeddings.json`, `embeddings.bin` | The question index: chunk metadata and unit-length vectors |
+
+A trimmed `graph.json`:
 
 ```jsonc
 {
   "version": 2,
   "source": "https://github.com/owner/repo",
-  "generatedAt": "2026-09-17T…",
   "stats": { "fileCount": 12, "edgeCount": 28, "externalImports": 21, … },
   "nodes": [
     {
       "id": "src/hub.ts",
       "path": "src/hub.ts",
-      "type": "file",
       "language": "typescript",
       "importance": 0.85,
       "metrics": { "loc": 102, "churn": 3, "inDegree": 7, "outDegree": 0,
                    "centrality": 1, "churnScore": 0.5 },
       "summary": "Defines the shared helpers the rest of the package builds on.",
-      // ids into functionNodes, which holds the declarations themselves
-      "functions": [ "src/hub.ts#sharedHelper" ]
+      "functions": [ "src/hub.ts#sharedHelper" ]   // ids into functionNodes
     }
   ],
   "edges": [ { "from": "src/app.ts", "to": "src/hub.ts", "type": "import", "weight": 1 } ],
-  "functionNodes": [ { "id": "src/hub.ts#sharedHelper", "file": "src/hub.ts",
-                       "name": "sharedHelper", "kind": "function", "exported": true,
-                       "startLine": 1, "endLine": 3, "importance": 1,
+  "functionNodes": [ { "id": "src/hub.ts#sharedHelper", "name": "sharedHelper",
+                       "kind": "function", "startLine": 1, "importance": 1,
                        "summary": "Doubles the value it is given." } ],
   "functionEdges": [ { "from": "src/util.ts#double", "to": "src/hub.ts#sharedHelper",
                        "type": "call", "weight": 1 } ],
@@ -379,62 +222,153 @@ Written to `.synapse/graph.json`:
 }
 ```
 
-## Tests
+`functionNodes` is the single source of truth for declarations; `nodes[].functions`
+holds ids into it.
 
-```bash
-npm test
-```
+## How it works
 
-Builds a real git repo in a temp directory with a known dependency shape and a known
-commit distribution, then runs the actual walker, parser and `git log` against it — no
-mocks. Asserts that the hub file outranks the orphan, that churn breaks ties between files
-of equal centrality, and that the awkward resolution cases above all land.
+**Ingestion.** Walks the tree honouring `.gitignore` at every level, including nested
+ignore files and negation patterns. `node_modules`, `.git`, virtualenvs and build output
+are always skipped.
 
-Summarisation is tested against a fake backend that records prompts and returns canned
-responses, so the suite never starts a model or touches the network. It covers the cache
-round-trip, that a changed file re-summarises while its unchanged neighbours do not, that
-preflight failures degrade gracefully, and that hallucinated function names are dropped.
+**Parsing.** tree-sitter parses JavaScript, TypeScript, TSX and Python, extracting
+imports (ESM, `require`, dynamic `import()`, Python's `import` and `from … import`
+including relative forms), function, class and method declarations, and call sites
+attributed to their enclosing function. Source is fed through tree-sitter's callback
+input, which has no size limit; handing the Node binding a string silently fails above
+32KB, which once dropped the largest and most-depended-on files from the graph. A file
+that cannot be parsed is recorded in `parseFailures` and reported, never dropped quietly.
 
-Retrieval is tested against a deterministic fake embedder — a bag-of-words vector over a
-fixed vocabulary — so cosine ranking is exercised for real without a model. It covers
-chunk construction at both granularities, the store's save/load round-trip, that an
-unchanged rebuild embeds nothing, that only edited chunks are re-embedded, that changing
-the embedding model invalidates the index, and that every failure mode returns
-remediation rather than throwing.
+**Resolution.** Imports are matched only against files that exist: TypeScript's NodeNext
+`./foo.js` meaning `./foo.ts`, directory imports resolving to `index.*`, Python relative
+imports with several leading dots, absolute imports under a `src/` layout, and bare
+specifiers naming sibling workspace packages. Anything left is counted as external,
+never invented as a node.
+
+**Scoring.** Two signals, blended 70/30. *Centrality* is PageRank over the import graph,
+edges pointing from importer to imported, so importance flows to what everything depends
+on. *Churn* counts the commits touching each file with `git log --follow`, so a renamed
+file keeps its history; counts are log-compressed, so one 400-commit config file cannot
+flatten everything else. Without git history, centrality takes the full weight.
+Functions are ranked the same way over the call graph.
+
+**Summarisation.** The top `--summarize-top` files get a 1-3 sentence summary, plus one
+sentence for each file's three most-called functions, from one structured-output request
+per file. The prompt carries the file's path, the metrics that made it significant, its
+real declaration signatures and the first 6,000 characters of source. Function names the
+file does not declare are dropped, so a hallucinated name cannot reach the graph. Results
+are cached by content hash and model, so a re-run only pays for files that changed.
+
+**Retrieval.** `ask` embeds the question locally, retrieves the closest chunks, and has
+the model answer only from them, saying so when they fall short. There are two chunk
+granularities: one per file (summary, declarations, metrics) for "where does X live",
+and one per summarised function (summary, real signature, calls) for specific
+behaviour. Half the results are reserved for each kind, because the broader file chunks
+otherwise crowd out the function chunk holding the answer; `--global-rank` turns that
+off. Chunks are keyed by a hash of their text, so re-indexing embeds only what changed.
+
+**Vector store.** Brute-force cosine similarity over a flat `Float32Array` of unit-length
+vectors, deliberately. Even a large repository lands in the low tens of thousands of
+chunks, where a query takes 3ms at 1,000 chunks, 6ms at 5,000, 24ms at 20,000 and 60ms at
+50,000. An embedded vector database would have pulled in 134 packages, including other
+vendors' SDKs, for no gain at this size. The store sits behind a `VectorStore`
+interface, so swapping in an approximate index later is a contained change.
+
+**Rendering.** The whole graph is two draw calls, one instanced mesh for the nodes and one
+line buffer for the edges, whatever its size. The force layout runs to completion in a
+Web Worker before the first frame, so the page stays responsive and shows progress while
+a large graph settles. The camera frames the important files rather than the whole
+cloud: it orbits their importance-weighted centre and frames the 90th percentile of their
+spread. The layout centres the mass of *all* files, which in a real repository is mostly
+tests, examples and docs, so framing the cloud put the core off to one side at a fraction
+of the screen. Node sizes scale with that frame, so a node looks the same size on a
+20-file repository and an 18,000-file one, and the view is offset to sit beside the
+panels rather than behind them.
 
 ## Known limits
 
-- Large repositories work but are not fast: on home-assistant/core (18,851 Python files,
-  117.7MB of source) parsing takes ~42s and peaks around 1.1GB RSS, churn adds ~2.5
-  minutes, and building the embedding index takes ~10 minutes.
-- The 3D view still does not read well at ~19,000 nodes even with nothing clipped. The
-  layout is the limit rather than the renderer: it runs 150 synchronous ticks on the main
-  thread (~39s, during which the tab is frozen), the node cloud settles about 1,284 units
-  off the origin the camera looks at, and positions are still dominated by the initial
-  seeding rather than by graph structure. Those are layout problems, not framing ones.
-- `git log --follow` only accepts one path at a time, so churn is one git process per file.
-  Bounded to 16 concurrent, but it is the slowest step by a wide margin on large repos.
-- Call-graph resolution is name-based, not scope-aware. Two same-named functions in one
-  file collapse to the first; dynamic dispatch and re-exported names are not traced.
-- Only JS/TS/TSX and Python are parsed. Other files are ignored entirely.
-- The UI bundles three.js, so the client build is around 1MB (275KB gzipped). That is
-  fine over localhost and has not been optimised further.
-- `--provider anthropic` sends your source code to the Anthropic API. The local path
-  remains the default precisely because nothing has to leave the machine.
-- Summaries are only as good as the local model. The prompt sends the first 6000
-  characters of a file, so a summary of a very large file describes its head, not its tail.
-- Retrieval searches summaries and declarations, not raw source. A question whose answer
-  lives in a function body that was never summarised will not find it, and no ranking
-  strategy can recover what the summaries do not say. The clearest example: the 70/30
-  importance blend lives in `buildGraph`'s body and a code comment, so asking how
-  importance is calculated retrieves the churn and PageRank pieces but never `buildGraph`
-  itself, whose chunk ranks 9th among function chunks for that query. Raising
-  `--summarize-top` widens what is answerable; surfacing this particular fact would need
-  source text in the chunks, not better ranking.
-- Embeddings need a model built for them. Asking a chat model to embed fails, because
-  Ollama only starts embedding-capable runners for embedding models; `synapse index`
-  detects this and names the fix.
+- **Large repositories work, slowly.** On home-assistant/core (18,932 files, 118MB of
+  source) parsing takes about 42 seconds and peaks around 1.1GB of memory, churn adds
+  about 2.5 minutes, the explorer's layout about 40 seconds, and building the question
+  index about 10 minutes.
+- **Churn is one git process per file.** `git log --follow` accepts a single path, so the
+  history pass runs one process per file, 16 at a time. It is the slowest analysis step
+  on large repositories; `--skip-churn` drops it and ranks on centrality alone.
+- **The vector store is brute force.** Query time grows linearly: 60ms at 50,000 chunks is
+  fine, but a monorepo far beyond that would want an approximate index.
+- **Very large graphs are dense at the core.** On home-assistant/core the explorer opens
+  on its 300 most important files, which fill the view with individual files and hubs
+  visible, but the middle of that cluster is still a tangle. Narrowing with the slider,
+  zooming in, and following the sources of an answer are the useful ways in.
+- **Call resolution is by name, not scope.** Two same-named functions in one file collapse
+  into the first, and dynamic dispatch and re-exported names are not traced.
+- **Only JavaScript, TypeScript, TSX and Python are parsed.** Other files are ignored.
+- **Summaries describe the head of a file.** The prompt includes the first 6,000
+  characters, so a summary of a very large file describes its beginning, and summaries
+  are only as good as the model writing them.
+- **Questions search summaries and declarations, not raw source.** An answer that lives in
+  an unsummarised function body will not be found, whatever the ranking. Raising
+  `--summarize-top` widens what is answerable.
+- **Repositories analysed from a URL lose their source afterwards.** The clone is deleted
+  once the graph is built, so the question index falls back to the signatures stored in
+  the graph instead of reading them from source. Clone the repository and analyse the
+  local path when question quality matters.
+- **Embeddings need an embedding model.** A chat model cannot embed; `index` detects the
+  mistake and names the fix.
+- **`--provider anthropic` sends code to Anthropic.** Local remains the default for exactly
+  that reason.
+
+## Development
+
+Synapse is an npm-workspaces monorepo built with Turborepo:
+
+| Package | What it is |
+| --- | --- |
+| `packages/core` | The analysis engine: ingestion, parsing, graph, scoring, providers, retrieval |
+| `packages/server` | The Fastify API over core, and the security headers and host guard |
+| `packages/cli` | The `synapse` command |
+| `packages/web` | The React and react-three-fiber explorer and overview page |
+
+```bash
+npm install
+npm run build          # every package in dependency order, cached by Turborepo
+npm test               # the core test suite
+node packages/cli/dist/src/index.js serve .
+```
+
+The tests build real git repositories in temporary directories and run the actual walker,
+parser and `git log` against them, with no mocks for any of that. Summarisation and
+retrieval run against a fake model backend and a deterministic bag-of-words embedder, so
+the suite never starts a model or touches the network.
+
+To work on the UI, run the API and the Vite dev server side by side; Vite proxies `/api`:
+
+```bash
+node packages/cli/dist/src/index.js serve . --no-open   # API on :4317
+npm run dev --workspace @synapse/web                    # UI on :5317
+```
+
+The overview page's live graph renders `packages/web/src/landing/sample-graph.json`, a
+trimmed analysis of this repository; regenerate it with
+`npm run sample-graph --workspace @synapse/web -- <path/to/graph.json>`. The GitHub URL
+the pages link to lives in `packages/web/src/site.ts`. Before hosting the overview on a
+domain, add a canonical link, `og:url`, `og:image` and a sitemap, which all need the
+absolute URL.
+
+### Packaging
+
+```bash
+npm run release:pack
+```
+
+This builds everything and assembles the publishable `synapse-map` package in
+`release/`: the compiled CLI, core and server with their internal imports made relative,
+the built web app, and `THIRD_PARTY_NOTICES.md` for everything bundled into it. The
+internal `@synapse/*` names are never published. The script refuses to pack if any
+shipped import is not a declared dependency, and it only packs; publishing is a separate,
+deliberate step.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). The package also ships `THIRD_PARTY_NOTICES.md` for the
+libraries and fonts bundled into the web app.

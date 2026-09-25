@@ -45,7 +45,7 @@ function useServed(): Served {
   return served;
 }
 
-const CLI = "node packages/cli/dist/src/index.js";
+const CLI = `npx ${SITE.packageName}`;
 /** The example target every usage step points at, so the steps chain together. */
 const PROJECT = "~/code/your-project";
 
@@ -225,16 +225,14 @@ export function Landing() {
 
           <ol className="steps">
             <li>
-              <h3>Install</h3>
-              <p>Clone and build. The command-line tool lands in <code>packages/cli/dist</code>.</p>
+              <h3>Pull the models</h3>
+              <p>
+                Once, for summaries and questions. Skip this and you still get the graph and the
+                rankings.
+              </p>
               <CommandBlock
-                label="Install commands"
-                commands={[
-                  `git clone ${SITE.repositoryUrl}.git`,
-                  `cd ${SITE.cloneDir}`,
-                  "npm install",
-                  "npm run build",
-                ]}
+                label="Model commands"
+                commands={["ollama pull qwen2.5:14b-instruct", "ollama pull nomic-embed-text"]}
               />
             </li>
             <li>
@@ -253,16 +251,13 @@ export function Landing() {
             <li>
               <h3>Ask questions</h3>
               <p>
-                Pull the embedding model once, then ask from the explorer or the terminal. To
-                answer with Claude, export <code>ANTHROPIC_API_KEY</code> and add{" "}
-                <code>--provider anthropic</code>; prompts then go to Anthropic’s API.
+                From the explorer or the terminal. To answer with Claude, export{" "}
+                <code>ANTHROPIC_API_KEY</code> and add <code>--provider anthropic</code>; prompts
+                then go to Anthropic’s API.
               </p>
               <CommandBlock
-                label="Ask commands"
-                commands={[
-                  "ollama pull nomic-embed-text",
-                  `${CLI} ask "where is authentication handled?" --path ${PROJECT} --show-sources`,
-                ]}
+                label="Ask command"
+                commands={[`${CLI} ask "where is authentication handled?" --path ${PROJECT} --show-sources`]}
               />
             </li>
           </ol>

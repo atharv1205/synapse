@@ -6,7 +6,13 @@ import { analyze, writeGraph, type ProviderName } from "@synapse/core";
 import { createServer, isLoopback, type AnalysisState } from "@synapse/server";
 
 export interface ServeOptions {
+  /** What is being served: a local path, or a repository URL with any credential removed. */
   root: string;
+  /**
+   * The URL to clone when the target is remote, credential included if the user put one
+   * in it. Only the analysis sees this; everything printed or returned uses `root`.
+   */
+  cloneTarget?: string;
   cacheDir: string;
   port: number;
   host: string;
@@ -35,17 +41,24 @@ function openBrowser(url: string): void {
   }
 }
 
-/** Locates the built web app, if it was built. */
+/**
+ * Locates the built web app. Two layouts are possible: the monorepo, where this file is
+ * packages/cli/dist/src/serve.js beside packages/web/dist, and the published package,
+ * where it is dist/cli/serve.js and the app ships in web/ at the package root.
+ */
 async function findWebDist(): Promise<string | undefined> {
-  // packages/cli/dist/src/serve.js -> packages/web/dist
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const candidate = path.resolve(here, "../../../web/dist");
-  try {
-    await access(path.join(candidate, "index.html"));
-    return candidate;
-  } catch {
-    return undefined;
+  const candidates = [path.resolve(here, "../../../web/dist"), path.resolve(here, "../../web")];
+
+  for (const candidate of candidates) {
+    try {
+      await access(path.join(candidate, "index.html"));
+      return candidate;
+    } catch {
+      // Not this layout; try the next.
+    }
   }
+  return undefined;
 }
 
 /**
@@ -116,7 +129,7 @@ export async function serve(options: ServeOptions): Promise<void> {
 
     void (async () => {
       try {
-        const graph = await analyze(options.root, {
+        const graph = await analyze(options.cloneTarget ?? options.root, {
           cacheDir: options.cacheDir,
           token: options.token,
           provider: options.provider,

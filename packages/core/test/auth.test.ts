@@ -176,6 +176,16 @@ describe("cloneErrorDetail", () => {
     assert.ok(!detail.includes(TOKEN), detail);
   });
 
+  it("scrubs a credential embedded in the URL when no token was passed", () => {
+    // The token arrives only inside the URL, so there is no known secret to search for;
+    // git still quotes it back mid-sentence.
+    const detail = cloneErrorDetail({
+      stderr: `fatal: could not read Password for 'https://${TOKEN}@github.com': terminal prompts disabled`,
+    });
+    assert.ok(!detail.includes(TOKEN), detail);
+    assert.match(detail, /https:\/\/<redacted>@github\.com/);
+  });
+
   it("falls back to the raw text when git printed nothing recognisable", () => {
     const detail = cloneErrorDetail({ message: "spawn git ENOENT" });
     assert.match(detail, /ENOENT/);

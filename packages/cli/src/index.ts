@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import {
@@ -7,6 +8,7 @@ import {
   ask,
   buildIndex,
   isRepoUrl,
+  redactUrl,
   writeGraph,
   DEFAULT_EMBED_MODEL,
   DEFAULT_MODEL,
@@ -27,7 +29,7 @@ Usage:
   synapse analyze <path-or-github-url> [options]   Build the graph
   synapse index [path] [options]                   Build/refresh the embedding index
   synapse ask "<question>" [options]               Ask a question about the codebase
-  synapse serve [path] [options]                   Serve the 3D UI and API
+  synapse serve [path-or-github-url] [options]     Serve the 3D UI and API
 
 analyze:
   --out <dir>            Where to write graph.json (default: <target>/.synapse)
@@ -52,6 +54,7 @@ ask:
 
 serve:
   --path <dir>           Repo root (default: .)
+  --token <token>        Credential for a private repository, as for analyze
   --port <n>             Port to listen on (default: 4317)
   --host <addr>          Address to bind (default: 127.0.0.1)
   --no-open              Do not open a browser window
@@ -69,6 +72,7 @@ Shared:
   --embed-model <name>   Embedding model (default: ${DEFAULT_EMBED_MODEL})
   --ollama-url <url>     Ollama base URL (default: http://localhost:11434)
   -h, --help             Show this message
+  -v, --version          Print the installed version
 `;
 
 /** Wraps long text so multi-sentence output stays readable in a terminal. */
@@ -326,6 +330,16 @@ async function runAsk(question: string, values: Record<string, unknown>): Promis
 
 // ---------------------------------------------------------------------------
 
+/**
+ * The installed version. package.json sits two levels above this file in both layouts
+ * it runs from: packages/cli/dist/src/ in the monorepo, and dist/cli/ in the published
+ * package, whose package.json is the one npm installed.
+ */
+function version(): string {
+  const manifest = createRequire(import.meta.url)("../../package.json") as { version: string };
+  return manifest.version;
+}
+
 async function main(): Promise<void> {
   const { values, positionals } = parseArgs({
     args: process.argv.slice(2),
@@ -350,9 +364,15 @@ async function main(): Promise<void> {
       "ollama-url": { type: "string" },
       json: { type: "boolean" },
       help: { type: "boolean", short: "h" },
+      version: { type: "boolean", short: "v" },
     },
     allowPositionals: true,
   });
+
+  if (values.version) {
+    console.log(version());
+    return;
+  }
 
   if (values.help || positionals.length === 0) {
     console.log(USAGE);
@@ -375,11 +395,18 @@ async function main(): Promise<void> {
 
     case "serve": {
       if (argument) values.path = values.path ?? argument;
-      const root = path.resolve(typeof values.path === "string" ? values.path : ".");
+      const target = typeof values.path === "string" ? values.path : ".";
+      // A URL is cloned by the analysis itself. Resolving it as a path first turned
+      // `serve https://github.com/org/repo` into a directory that does not exist. It
+      // is redacted here because serve prints it and /api/status returns it; the
+      // clone step still receives the credential through --token or GITHUB_TOKEN.
+      const remote = isRepoUrl(target);
+      const root = remote ? redactUrl(target) : path.resolve(target);
       const llm = llmOptions(values);
       return serve({
         root,
-        cacheDir: resolveOutDir(root, values.out),
+        cloneTarget: remote ? target : undefined,
+        cacheDir: resolveOutDir(target, values.out),
         port: values.port ? Number(values.port) : 4317,
         host: typeof values.host === "string" ? values.host : "127.0.0.1",
         token: tokenFrom(values),

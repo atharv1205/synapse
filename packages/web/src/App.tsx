@@ -17,6 +17,25 @@ import "./styles/app.css";
  */
 const PROMINENT_TARGET = 300;
 
+/**
+ * How much of the scene's right edge the panel column covers on wide screens: its 380px
+ * width, its 16px inset, and 16px of air. Matches .panels in styles/app.css, which
+ * stacks the panels under the scene instead at 860px and below.
+ */
+const PANEL_COLUMN = 380 + 16 + 16;
+const PANELS_OVERLAY = "(min-width: 861px)";
+
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const list = window.matchMedia(query);
+    const sync = () => setMatches(list.matches);
+    list.addEventListener("change", sync);
+    return () => list.removeEventListener("change", sync);
+  }, [query]);
+  return matches;
+}
+
 /** How often to re-poll status while waiting for a graph to appear. */
 const POLL_MS = 2500;
 
@@ -35,6 +54,7 @@ export function App() {
   const [colorMode, setColorMode] = useState<ColorMode>("importance");
   const [indexing, setIndexing] = useState(false);
   const [indexMessage, setIndexMessage] = useState<string | undefined>();
+  const panelsOverlay = useMediaQuery(PANELS_OVERLAY);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -225,6 +245,7 @@ export function App() {
           citedIndices={citedIndices}
           focusIndex={focusIndex}
           onSelect={handleSelect}
+          occludedRight={panelsOverlay ? PANEL_COLUMN : 0}
         />
 
         {/* Inside the scene so the panels sit against the canvas regardless of how

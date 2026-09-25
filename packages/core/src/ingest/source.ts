@@ -52,6 +52,16 @@ export function redactUrl(input: string): string {
   }
 }
 
+/**
+ * Strips the userinfo from every URL inside a piece of text, not only from text that is
+ * itself a URL. Git quotes the URL it was given in its own errors, as in
+ * `could not read Password for 'https://<token>@github.com'`, so a credential pasted
+ * into the URL surfaces mid-sentence, where `redactUrl` alone never looked.
+ */
+export function redactUrlsInText(text: string): string {
+  return text.replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@'"<>]+@/gi, "$1<redacted>@");
+}
+
 /** Replaces every occurrence of a secret in text, for scrubbing tool output. */
 export function redactSecret(text: string, secret?: string): string {
   if (!secret || secret.length < 4) return text;
@@ -132,7 +142,7 @@ export function cloneErrorDetail(error: unknown, token?: string): string {
     .join(" ")
     .slice(0, 300);
 
-  return redactSecret(redactUrl(redactSecret(chosen, token)), token).trim();
+  return redactSecret(redactUrlsInText(redactSecret(chosen, token)), token).trim();
 }
 
 /** Git's own auth failures, which say nothing useful about what to do next. */

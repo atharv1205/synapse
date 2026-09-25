@@ -1,5 +1,5 @@
 import { OrbitControls } from "@react-three/drei";
-import { Canvas, useFrame, type ThreeEvent } from "@react-three/fiber";
+import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState, type ElementRef } from "react";
 import * as THREE from "three";
 import type { Layout, PositionedNode } from "../layout";
@@ -97,7 +97,8 @@ function Nodes({
   citedIndices,
   onSelect,
   nodeScale,
-}: SceneProps & { nodeScale: number }) {
+  framing,
+}: SceneProps & { nodeScale: number; framing: number }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const cited = useMemo(() => new Set(citedIndices), [citedIndices]);
 
@@ -125,7 +126,7 @@ function Nodes({
       // without competing for attention. Selected and cited nodes always show at size.
       const emphasis = isSelected ? 1.5 : isCited ? 1.25 : 1;
       const dimming = visible || isSelected || isCited ? 1 : 0.3;
-      const scale = radiusFor(positioned, layout.radius) * nodeScale * emphasis * dimming;
+      const scale = radiusFor(positioned, framing) * nodeScale * emphasis * dimming;
 
       scratch.position.set(positioned.x, positioned.y, positioned.z);
       scratch.matrix.makeScale(scale, scale, scale).setPosition(scratch.position);
@@ -141,7 +142,7 @@ function Nodes({
 
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [layout, threshold, colorMode, selectedIndex, cited, scratch, nodeScale]);
+  }, [layout, threshold, colorMode, selectedIndex, cited, scratch, nodeScale, framing]);
 
   const handleClick = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
@@ -251,6 +252,15 @@ function CameraFocus({
   const distance = useRef(radius);
   const active = useRef(false);
 
+  // Orbit around the important files, not the origin; see Layout.center. Memoised so
+  // the controls only take it when the layout changes, not on every render, which would
+  // yank the target back from a node the camera is flying to.
+  const showcase = mode === "showcase";
+  const center = useMemo(() => {
+    const point = showcase ? layout.overview.center : layout.center;
+    return new THREE.Vector3(point.x, point.y, point.z);
+  }, [layout, showcase]);
+
   useEffect(() => {
     if (focusIndex === undefined) return;
     const positioned = layout.nodes.find((n) => n.index === focusIndex);
@@ -258,12 +268,11 @@ function CameraFocus({
 
     goal.current.set(positioned.x, positioned.y, positioned.z);
 
-    // Frame the node against its neighbours rather than filling the viewport with it.
-    // Keying off the node's own radius keeps that framing consistent whether the graph
-    // is 20 files across or 2000; the graph radius only supplies an upper bound so the
-    // camera never pulls back beyond the whole scene.
+    // Frame the node among its neighbours rather than filling the viewport with it. The
+    // floor is half the framing radius: a fixed 45 units once put the camera inside
+    // pallets/flask's cluster, where the neighbouring spheres filled the whole screen.
     const own = radiusFor(positioned, radius) * 14;
-    distance.current = Math.min(Math.max(own, 45), radius * 1.4);
+    distance.current = Math.min(Math.max(own, radius * 0.5), radius * 1.4);
     active.current = true;
   }, [focusIndex, layout, radius]);
 
@@ -284,12 +293,12 @@ function CameraFocus({
     if (orbit.target.distanceTo(goal.current) < 0.4) active.current = false;
   });
 
-  const showcase = mode === "showcase";
   const still = usePrefersReducedMotion();
 
   return (
     <OrbitControls
       ref={controls}
+      target={center}
       makeDefault
       enableDamping
       dampingFactor={0.12}
@@ -299,6 +308,27 @@ function CameraFocus({
       autoRotateSpeed={0.45}
     />
   );
+}
+
+/**
+ * Shifts the projection so the orbit centre sits in the middle of the part of the canvas
+ * the panels leave uncovered, rather than the middle of the whole canvas, which is behind
+ * the panels' left edge. Picking uses the same projection, so clicks still land.
+ */
+function ViewOffset({ occludedRight }: { occludedRight: number }) {
+  const camera = useThree((state) => state.camera) as THREE.PerspectiveCamera;
+  const { width, height } = useThree((state) => state.size);
+
+  useEffect(() => {
+    if (occludedRight > 0 && occludedRight < width) {
+      camera.setViewOffset(width, height, occludedRight / 2, 0, width, height);
+    } else {
+      camera.clearViewOffset();
+    }
+    return () => camera.clearViewOffset();
+  }, [camera, width, height, occludedRight]);
+
+  return null;
 }
 
 function usePrefersReducedMotion(): boolean {
@@ -314,25 +344,43 @@ function usePrefersReducedMotion(): boolean {
   return reduced;
 }
 
-export function GraphScene(props: SceneProps & { focusIndex?: number; mode?: SceneMode }) {
-  const { layout, mode = "tool" } = props;
-  // The showcase sits beside the headline in a fraction of the window and nobody zooms
-  // it, so it frames tighter and draws nodes and edges heavier than the explorer does,
-  // where the same sizes would read as specks.
+export function GraphScene(
+  props: SceneProps & {
+    focusIndex?: number;
+    mode?: SceneMode;
+    /** Pixels of the canvas's right edge covered by panels, to centre the view beside. */
+    occludedRight?: number;
+  },
+) {
+  const { layout, mode = "tool", occludedRight = 0 } = props;
   const showcase = mode === "showcase";
-  const distance = layout.radius * (showcase ? 0.95 : 1.6);
+  // The explorer frames the important files; the showcase frames the whole graph, since
+  // its job is to show the shape of a codebase. The showcase sits beside the headline and
+  // nobody zooms it, so it draws nodes heavier: on screen a node's size goes as its scale
+  // over the camera's distance factor, 2.8 / 1.4 here against 1 / 1.6 in the explorer.
+  const frame = showcase ? layout.overview : layout;
+  const framing = frame.radius;
+  const distance = framing * (showcase ? 1.4 : 1.6);
+  const { center } = frame;
 
   // The far plane has to reach past the furthest node as seen from the camera, not just
   // past the framing radius. A hardcoded 20,000 clipped an entire 18,851-node scene out
   // of existence; deriving it means the clip distance grows with the graph.
-  const far = Math.max((distance + layout.extent) * 1.5, 2_000);
+  // `extent` is measured from the explorer's centre; the gap between the two centres
+  // covers the showcase, which orbits the other one.
+  const gap = Math.hypot(
+    center.x - layout.center.x,
+    center.y - layout.center.y,
+    center.z - layout.center.z,
+  );
+  const far = Math.max((distance + layout.extent + gap) * 1.5, 2_000);
   // Keep some depth-buffer precision at large far values without clipping a focused node.
-  const near = Math.min(1, Math.max(0.1, layout.radius / 5_000));
+  const near = Math.min(1, Math.max(0.1, framing / 5_000));
 
   return (
     <Canvas
       camera={{
-        position: [distance * 0.6, distance * 0.45, distance * 0.8],
+        position: [center.x + distance * 0.6, center.y + distance * 0.45, center.z + distance * 0.8],
         fov: 55,
         near,
         far,
@@ -351,14 +399,10 @@ export function GraphScene(props: SceneProps & { focusIndex?: number; mode?: Sce
       <directionalLight position={[-1, -0.5, -1]} intensity={0.35} />
 
       <Edges layout={layout} threshold={props.threshold} opacity={showcase ? 0.75 : 0.5} />
-      <Nodes {...props} nodeScale={showcase ? 1.9 : 1} />
+      <Nodes {...props} nodeScale={showcase ? 2.8 : 1} framing={framing} />
 
-      <CameraFocus
-        layout={layout}
-        focusIndex={props.focusIndex}
-        radius={layout.radius}
-        mode={mode}
-      />
+      <CameraFocus layout={layout} focusIndex={props.focusIndex} radius={framing} mode={mode} />
+      <ViewOffset occludedRight={occludedRight} />
     </Canvas>
   );
 }

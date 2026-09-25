@@ -100,5 +100,6 @@ export const api = {
 
 /** The last path segment of the served root, which is what a person calls the repo. */
 export function repoNameOf(root: string): string {
-  return root.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || root;
+  // A served URL ends in `repo` or `repo.git`; a path ends in the directory name.
+  return root.replace(/[\\/]+$/, "").split(/[\\/:]/).pop()?.replace(/\.git$/, "") || root;
 }

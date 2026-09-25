@@ -6,11 +6,9 @@ export const SITE = {
   name: "Synapse",
   /**
    * Placeholder: the repository is not public yet. Replace with the real URL before
-   * publishing; every GitHub link and the clone command read it from here.
+   * publishing; every GitHub link on both pages reads it from here.
    */
   repositoryUrl: "https://github.com/your-username/synapse",
-  /** Local directory the clone command creates, derived from the URL's last segment. */
-  get cloneDir(): string {
-    return this.repositoryUrl.split("/").pop() ?? "synapse";
-  },
+  /** The npm package the setup steps run with npx. */
+  packageName: "synapse-map",
 };
