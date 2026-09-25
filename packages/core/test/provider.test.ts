@@ -246,8 +246,12 @@ describe("prompts are shared across providers", () => {
 
     assert.equal(viaAnthropic.prompts.length, viaOllama.prompts.length);
     assert.ok(viaOllama.prompts.length > 0, "the run must actually have summarised something");
-    assert.deepEqual(viaAnthropic.prompts, viaOllama.prompts);
-    assert.match(viaOllama.prompts[0]!, /You are documenting one file/);
+
+    // Sorted before comparing: summarisation runs two workers off a shared queue, so
+    // the order prompts are recorded in is not deterministic. The claim under test is
+    // that the same set of prompts is produced, not that they are produced in step.
+    assert.deepEqual([...viaAnthropic.prompts].sort(), [...viaOllama.prompts].sort());
+    assert.ok(viaOllama.prompts.every((p) => p.includes("You are documenting one file")));
   });
 
   it("builds that prompt with the shared builder", async () => {

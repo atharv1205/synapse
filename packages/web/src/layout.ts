@@ -24,8 +24,21 @@ export interface Layout {
   edges: LayoutEdge[];
   /** Distinct directories, sorted, so colour assignment is stable across reloads. */
   directories: string[];
-  /** Furthest node distance from the origin, used to frame the initial camera. */
+  /**
+   * The radius the camera frames against: a percentile of node distance from the
+   * origin, not the maximum.
+   *
+   * The maximum is an outlier statistic. On an 18,851-node graph a handful of stragglers
+   * pushed it to 25,282 while the median node sat at 1,924, so framing against it put
+   * the camera 40,451 units out — past the far plane, with every node subtending about
+   * an arcminute. A percentile tracks where the graph actually is.
+   */
   radius: number;
+  /**
+   * Distance to the single furthest node. Only used to size the far plane, so that the
+   * outliers the framing radius deliberately ignores still are not clipped away.
+   */
+  extent: number;
 }
 
 interface WorkingNode extends SimNode {
@@ -60,6 +73,18 @@ function repulsion(nodeCount: number): number {
   if (nodeCount <= 300) return -140;
   return -80;
 }
+
+/**
+ * Which percentile of node distance the camera frames against.
+ *
+ * Measured on home-assistant/core (18,851 nodes), the distance distribution has a cliff:
+ * p50 1924, p90 2340, p95 12581, max 25282. Ninety percent of the graph sits inside
+ * 2340 units and the rest is flung out behind it, so p95 lands on the far side of the
+ * tail and frames almost as badly as the max did — a top node subtends 2.4 arcminutes
+ * there (about half a pixel) versus 12.9 at p90. Framing at p90 keeps nine nodes in ten
+ * on screen and the rest a scroll away.
+ */
+const FRAMING_PERCENTILE = 0.9;
 
 export function directoryOf(filePath: string): string {
   const parts = filePath.split("/");
@@ -150,7 +175,16 @@ export function computeLayout(graph: RepoGraph): Layout {
   });
 
   const directories = [...new Set(nodes.map((n) => n.directory))].sort();
-  const radius = nodes.reduce((max, n) => Math.max(max, Math.hypot(n.x, n.y, n.z)), 0);
 
-  return { nodes, edges, directories, radius: radius || 100 };
+  const distances = nodes.map((n) => Math.hypot(n.x, n.y, n.z)).sort((a, b) => a - b);
+  const at = (fraction: number) =>
+    distances.length === 0
+      ? 0
+      : (distances[Math.min(distances.length - 1, Math.floor(distances.length * fraction))] ?? 0);
+
+  // `|| 100` covers a single-node graph, where every distance is zero.
+  const radius = at(FRAMING_PERCENTILE) || 100;
+  const extent = distances[distances.length - 1] ?? radius;
+
+  return { nodes, edges, directories, radius, extent: Math.max(extent, radius) };
 }

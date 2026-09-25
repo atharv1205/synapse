@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { functionIndex, functionsOf } from "@synapse/core";
 import type { RepoGraph } from "@synapse/core";
+import { functionIndex, functionsOf } from "./graph";
 import { api, ApiError, type Status } from "./api";
 import { computeLayout } from "./layout";
 import { AskPanel } from "./components/AskPanel";
@@ -10,9 +10,9 @@ import { StatusBanner, StatusGate } from "./components/StatusGate";
 import { Toolbar } from "./components/Toolbar";
 
 /**
- * Above this many files the view starts with a threshold that keeps roughly this many
- * nodes prominent, so a large repo opens on its important files rather than a hairball.
- * Everything is still rendered and still clickable — the threshold only fades.
+ * How many files the view aims to show prominently on load, so a large repo opens on
+ * its important files rather than a hairball. Everything is still rendered and still
+ * clickable — the cutoff only fades.
  */
 const PROMINENT_TARGET = 300;
 
@@ -30,7 +30,7 @@ export function App() {
   const [prefill, setPrefill] = useState<string | undefined>();
   const [citedPaths, setCitedPaths] = useState<string[]>([]);
 
-  const [threshold, setThreshold] = useState(0);
+  const [topPercent, setTopPercent] = useState(100);
   const [colorMode, setColorMode] = useState<ColorMode>("importance");
   const [indexing, setIndexing] = useState(false);
   const [indexMessage, setIndexMessage] = useState<string | undefined>();
@@ -69,22 +69,33 @@ export function App() {
   // The layout is expensive and deterministic, so it runs once per graph.
   const layout = useMemo(() => (graph ? computeLayout(graph) : undefined), [graph]);
 
-  const maxImportance = useMemo(
-    () => layout?.nodes.reduce((max, n) => Math.max(max, n.node.importance), 0) ?? 1,
+  /** Importance of every node, descending — the rank ladder the slider indexes into. */
+  const ranked = useMemo(
+    () => (layout ? layout.nodes.map((n) => n.node.importance).sort((a, b) => b - a) : []),
     [layout],
   );
 
-  // Pick an opening threshold that leaves about PROMINENT_TARGET nodes prominent.
+  /** How many files the current percentile keeps prominent; always at least one. */
+  const visibleCount = useMemo(
+    () => (ranked.length === 0 ? 0 : Math.max(1, Math.round((ranked.length * topPercent) / 100))),
+    [ranked, topPercent],
+  );
+
+  /**
+   * The importance cutoff the scene filters on, read off the rank ladder. Deriving it
+   * from rank rather than exposing it directly is what makes the control usable: the
+   * raw values bunch up near zero, but their ordering is evenly spread by definition.
+   */
+  const threshold = useMemo(
+    () => (visibleCount === 0 ? 0 : (ranked[visibleCount - 1] ?? 0)),
+    [ranked, visibleCount],
+  );
+
+  // Open on roughly PROMINENT_TARGET files, whatever the graph's size.
   useEffect(() => {
     if (!layout) return;
-    if (layout.nodes.length <= PROMINENT_TARGET) {
-      setThreshold(0);
-      return;
-    }
-    const sorted = layout.nodes
-      .map((n) => n.node.importance)
-      .sort((a, b) => b - a);
-    setThreshold(sorted[PROMINENT_TARGET] ?? 0);
+    const count = layout.nodes.length;
+    setTopPercent(count <= PROMINENT_TARGET ? 100 : Math.max(0.1, (PROMINENT_TARGET / count) * 100));
   }, [layout]);
 
   const indexByPath = useMemo(() => {
@@ -96,11 +107,6 @@ export function App() {
   const citedIndices = useMemo(
     () => citedPaths.map((p) => indexByPath.get(p)).filter((i): i is number => i !== undefined),
     [citedPaths, indexByPath],
-  );
-
-  const visibleCount = useMemo(
-    () => layout?.nodes.filter((n) => n.node.importance >= threshold).length ?? 0,
-    [layout, threshold],
   );
 
   const handleSelect = useCallback(
@@ -179,12 +185,11 @@ export function App() {
       <Toolbar
         fileCount={layout.nodes.length}
         visibleCount={visibleCount}
-        threshold={threshold}
-        maxImportance={maxImportance}
+        topPercent={topPercent}
         colorMode={colorMode}
         indexing={indexing}
         indexMessage={indexMessage}
-        onThresholdChange={setThreshold}
+        onTopPercentChange={setTopPercent}
         onColorModeChange={setColorMode}
         onReindex={() => void handleReindex()}
       />

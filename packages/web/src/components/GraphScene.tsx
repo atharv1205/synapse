@@ -36,9 +36,20 @@ function colorFor(
   return target.setHSL(0.62 - t * 0.52, 0.45 + t * 0.45, 0.35 + t * 0.3);
 }
 
-/** Radius in world units. Importance drives size, with a floor so nothing vanishes. */
-function radiusFor(positioned: PositionedNode): number {
-  return 1.6 + Math.sqrt(Math.min(1, Math.max(0, positioned.node.importance))) * 5.4;
+/**
+ * Node radius in world units, as a fraction of the framing radius rather than an
+ * absolute size.
+ *
+ * Fixed world-unit sizes only look right at one scale. At 1.6 + sqrt(importance) * 5.4
+ * a typical node was a comfortable 7px on a 26-file graph and 0.40px on an 18,851-file
+ * one — present, unclipped, and far too small to see, which is why that scene still read
+ * as empty after the clipping fix. Scaling with the framing radius keeps apparent size
+ * constant: roughly 3.5px for a typical node and 14px for the most important one, at any
+ * graph size.
+ */
+function radiusFor(positioned: PositionedNode, framingRadius: number): number {
+  const t = Math.min(1, Math.max(0, positioned.node.importance));
+  return framingRadius * (0.006 + 0.018 * Math.sqrt(t));
 }
 
 /**
@@ -75,7 +86,7 @@ function Nodes({ layout, threshold, colorMode, selectedIndex, citedIndices, onSe
       // without competing for attention. Selected and cited nodes always show at size.
       const emphasis = isSelected ? 1.5 : isCited ? 1.25 : 1;
       const dimming = visible || isSelected || isCited ? 1 : 0.3;
-      const scale = radiusFor(positioned) * emphasis * dimming;
+      const scale = radiusFor(positioned, layout.radius) * emphasis * dimming;
 
       scratch.position.set(positioned.x, positioned.y, positioned.z);
       scratch.matrix.makeScale(scale, scale, scale).setPosition(scratch.position);
@@ -202,7 +213,7 @@ function CameraFocus({
     // Keying off the node's own radius keeps that framing consistent whether the graph
     // is 20 files across or 2000; the graph radius only supplies an upper bound so the
     // camera never pulls back beyond the whole scene.
-    const own = radiusFor(positioned) * 14;
+    const own = radiusFor(positioned, radius) * 14;
     distance.current = Math.min(Math.max(own, 45), radius * 1.4);
     active.current = true;
   }, [focusIndex, layout, radius]);
@@ -231,9 +242,21 @@ export function GraphScene(props: SceneProps & { focusIndex?: number }) {
   const { layout } = props;
   const distance = layout.radius * 1.6;
 
+  // The far plane has to reach past the furthest node as seen from the camera, not just
+  // past the framing radius. A hardcoded 20,000 clipped an entire 18,851-node scene out
+  // of existence; deriving it means the clip distance grows with the graph.
+  const far = Math.max((distance + layout.extent) * 1.5, 2_000);
+  // Keep some depth-buffer precision at large far values without clipping a focused node.
+  const near = Math.min(1, Math.max(0.1, layout.radius / 5_000));
+
   return (
     <Canvas
-      camera={{ position: [distance * 0.6, distance * 0.45, distance * 0.8], fov: 55, far: 20000 }}
+      camera={{
+        position: [distance * 0.6, distance * 0.45, distance * 0.8],
+        fov: 55,
+        near,
+        far,
+      }}
       dpr={[1, 2]}
       // Clicking empty space clears the selection, which is what the gesture implies.
       onPointerMissed={() => props.onSelect(-1)}

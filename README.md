@@ -299,13 +299,28 @@ just core's preflight output, so the remediation the browser shows is the same t
 CLI prints rather than a second set of wordings to keep in step. When Ollama is down the
 graph still renders and stays fully explorable; only questions are disabled.
 
+**Framing.** The camera frames against the 90th percentile of node distance from the
+origin, not the maximum, and its far plane is derived from the scene's true extent
+rather than hardcoded. On an 18,851-node graph the maximum was an outlier statistic —
+25,282 against a median of 1,924 — which put the camera 40,451 units out, past a
+hardcoded far plane of 20,000, and clipped every node in the scene. Node radii scale
+with that framing radius too, so a node is about the same size on screen whatever the
+graph's size; fixed world-unit radii rendered a typical node at 7px on a 26-file repo
+and 0.4px on an 18,851-file one.
+
 **Rendering.** Every node is one instance of a single `InstancedMesh` and every edge is one
 segment of a single `LineSegments` buffer, so the whole graph is two draw calls whatever
 its size. That matters more than node count: a few thousand individual meshes would each
 cost a draw call and tank the framerate long before the data became the problem. The
 importance slider therefore fades and shrinks nodes rather than unmounting them, which
 keeps every file clickable and keeps Q&A sources linkable even when dimmed. Above ~300
-files the view opens with the threshold pre-set so it starts on the important files.
+files the view opens pre-set so it starts on the important files.
+
+The slider works in **rank percentile**, not raw importance. PageRank is heavily
+right-skewed — on the 18,851-node graph the top node scored 1.0000 and the 300th scored
+0.0009 — so a linear 0-1 importance slider put every useful value inside its first step,
+leaving about 0.09% of the track usable. Percentile is scale-free: half the track always
+means half the files, whatever the distribution underneath.
 
 Nodes are sized and coloured by the importance already in `graph.json` — nothing is
 recomputed client-side. Edge direction is shown by a per-vertex colour gradient, dim at
@@ -382,8 +397,12 @@ remediation rather than throwing.
 
 - Large repositories work but are not fast: on home-assistant/core (18,851 Python files,
   117.7MB of source) parsing takes ~42s and peaks around 1.1GB RSS, churn adds ~2.5
-  minutes, and building the embedding index takes ~10 minutes. The 3D view does not yet
-  hold up at that scale.
+  minutes, and building the embedding index takes ~10 minutes.
+- The 3D view still does not read well at ~19,000 nodes even with nothing clipped. The
+  layout is the limit rather than the renderer: it runs 150 synchronous ticks on the main
+  thread (~39s, during which the tab is frozen), the node cloud settles about 1,284 units
+  off the origin the camera looks at, and positions are still dominated by the initial
+  seeding rather than by graph structure. Those are layout problems, not framing ones.
 - `git log --follow` only accepts one path at a time, so churn is one git process per file.
   Bounded to 16 concurrent, but it is the slowest step by a wide margin on large repos.
 - Call-graph resolution is name-based, not scope-aware. Two same-named functions in one
