@@ -202,6 +202,16 @@ while the page shows live progress, then swaps to the graph without a reload.
 - **Ask** answers from the index and lists its sources; clicking a source flies the
   camera to that file. **Answer with** switches between Local, Gemini and Claude.
 - **Labels** name the dozen most important files on the map, and the selected one.
+  Labels that would overlap give way, files before folders.
+- **View** switches between files and folders. Repositories over 400 files open in the
+  folders view: each folder is one bubble, sized by its file count and coloured by its
+  most important file, with lines for the imports between folders. Big folders split
+  into their subfolders until there are about 40 bubbles; a folder with hundreds of
+  subfolders, like `homeassistant/components`, keeps its largest few and groups the rest
+  as one "+N more" bubble.
+- **Clicking a folder** lists its most important files, with **Show its files** to open
+  it in place and **Ask about this folder** to pre-fill a question. **Collapse all**
+  closes every open folder. Opening a file from an answer's sources opens its folder.
 
 `/` is the start page: paste a GitHub URL or a local folder there to analyse another
 repository, or follow "Analyse another" from the explorer's toolbar.
@@ -330,10 +340,10 @@ panels rather than behind them.
   on large repositories; `--skip-churn` drops it and ranks on centrality alone.
 - **The vector store is brute force.** Query time grows linearly: 60ms at 50,000 chunks is
   fine, but a monorepo far beyond that would want an approximate index.
-- **Very large graphs are dense at the core.** On home-assistant/core the explorer opens
-  on its 300 most important files, which fill the view with individual files and hubs
-  visible, but the middle of that cluster is still a tangle. Narrowing with the slider,
-  zooming in, and following the sources of an answer are the useful ways in.
+- **Very large graphs are dense at the core.** On home-assistant/core the folders view
+  gives about 65 bubbles, but folders sit where the layout put their files, so the core's
+  folders overlap, and the two "+N more" bubbles hold most of the files. Opening a folder,
+  the files view's slider, and following the sources of an answer are the useful ways in.
 - **Call resolution is by name, not scope.** Two same-named functions in one file collapse
   into the first, and dynamic dispatch and re-exported names are not traced.
 - **Only JavaScript, TypeScript, TSX and Python are parsed.** Other files are ignored.

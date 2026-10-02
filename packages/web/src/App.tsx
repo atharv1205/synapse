@@ -8,6 +8,9 @@ import { NodeDetails } from "./components/NodeDetails";
 import { Splash, Spinner, StatusBanner, StatusGate } from "./components/StatusGate";
 import { Toolbar } from "./components/Toolbar";
 import { useLayout } from "./useLayout";
+import { buildClustering, type Cluster } from "./clusters";
+import { ClusterDetails } from "./components/ClusterDetails";
+import type { ClusterView } from "./components/GraphScene";
 import { useProviderChoice } from "./components/ProviderSwitch";
 import "./styles/app.css";
 
@@ -17,6 +20,14 @@ import "./styles/app.css";
  * clickable — the cutoff only fades.
  */
 const PROMINENT_TARGET = 300;
+
+/**
+ * Above this many files the explorer opens on folders rather than files: a few dozen
+ * bubbles instead of thousands of dots. Below it the files themselves are readable.
+ */
+const FOLDERS_ABOVE = 400;
+
+export type ViewMode = "files" | "folders";
 
 /**
  * How much of the scene's right edge the panel column covers on wide screens: its 380px
@@ -52,6 +63,11 @@ export function App() {
   const [citedPaths, setCitedPaths] = useState<string[]>([]);
 
   const [topPercent, setTopPercent] = useState(100);
+  const [viewMode, setViewMode] = useState<ViewMode>("files");
+  // Cluster indices showing their files rather than a bubble, in the folders view.
+  const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
+  const [selectedCluster, setSelectedCluster] = useState<number | undefined>();
+  const [focusCluster, setFocusCluster] = useState<Cluster | undefined>();
   const [colorMode, setColorMode] = useState<ColorMode>("importance");
   const [indexing, setIndexing] = useState(false);
   const [indexMessage, setIndexMessage] = useState<string | undefined>();
@@ -121,6 +137,75 @@ export function App() {
     [ranked, visibleCount],
   );
 
+  const clustering = useMemo(
+    () =>
+      layout
+        ? buildClustering(
+            layout.nodes.map((n) => ({ index: n.index, path: n.node.path, importance: n.node.importance, x: n.x, y: n.y, z: n.z })),
+            layout.edges,
+          )
+        : undefined,
+    [layout],
+  );
+
+  // Big repositories open on folders; each new graph starts with every folder collapsed.
+  useEffect(() => {
+    if (!layout) return;
+    setViewMode(layout.nodes.length > FOLDERS_ABOVE ? "folders" : "files");
+    setExpanded(new Set());
+    setSelectedCluster(undefined);
+  }, [layout]);
+
+  const folders = viewMode === "folders" && clustering !== undefined;
+
+  /** Per node index, 1 for files inside a collapsed folder. */
+  const hidden = useMemo(() => {
+    if (!folders || !clustering) return undefined;
+    const mask = new Uint8Array(clustering.clusterOf.length);
+    clustering.clusterOf.forEach((cluster, i) => {
+      if (!expanded.has(cluster)) mask[i] = 1;
+    });
+    return mask;
+  }, [folders, clustering, expanded]);
+
+  const clusterView = useMemo<ClusterView | undefined>(() => {
+    if (!folders || !clustering) return undefined;
+    const collapsed = new Uint8Array(clustering.clusters.length);
+    clustering.clusters.forEach((_, i) => {
+      if (!expanded.has(i)) collapsed[i] = 1;
+    });
+    return {
+      clusters: clustering.clusters,
+      edges: clustering.edges,
+      collapsed,
+      selected: selectedCluster,
+      onSelect: (cluster: number) => {
+        setSelected(undefined);
+        setSelectedCluster(cluster);
+        setFocusCluster(clustering.clusters[cluster]);
+      },
+    };
+  }, [folders, clustering, expanded, selectedCluster]);
+
+  const toggleCluster = useCallback((cluster: number) => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(cluster)) next.delete(cluster);
+      else next.add(cluster);
+      return next;
+    });
+  }, []);
+
+  /** Makes a file visible in the folders view by expanding the folder it is in. */
+  const reveal = useCallback(
+    (index: number) => {
+      const cluster = clustering?.clusterOf[index];
+      if (cluster === undefined || cluster < 0) return;
+      setExpanded((current) => (current.has(cluster) ? current : new Set(current).add(cluster)));
+    },
+    [clustering],
+  );
+
   // Open on roughly PROMINENT_TARGET files, whatever the graph's size.
   useEffect(() => {
     if (!layout) return;
@@ -144,8 +229,10 @@ export function App() {
       // -1 is the scene's signal that empty space was clicked.
       if (index < 0) {
         setSelected(undefined);
+        setSelectedCluster(undefined);
         return;
       }
+      setSelectedCluster(undefined);
       setSelected(index);
       setFocusIndex(index);
     },
@@ -156,10 +243,13 @@ export function App() {
     (path: string) => {
       const index = indexByPath.get(path);
       if (index === undefined) return;
+      // A cited file may sit inside a collapsed folder; open the folder so it can be seen.
+      reveal(index);
+      setSelectedCluster(undefined);
       setSelected(index);
       setFocusIndex(index);
     },
-    [indexByPath],
+    [indexByPath, reveal],
   );
 
   const handleReindex = useCallback(async () => {
@@ -238,6 +328,13 @@ export function App() {
         onTopPercentChange={setTopPercent}
         onColorModeChange={setColorMode}
         onReindex={() => void handleReindex()}
+        viewMode={viewMode}
+        onViewModeChange={(mode) => {
+          setViewMode(mode);
+          setSelectedCluster(undefined);
+        }}
+        expandedCount={folders ? expanded.size : 0}
+        onCollapseAll={() => setExpanded(new Set())}
         provider={provider}
         providers={status?.providers}
         onProviderChange={choose}
@@ -255,11 +352,27 @@ export function App() {
           focusIndex={focusIndex}
           onSelect={handleSelect}
           occludedRight={panelsOverlay ? PANEL_COLUMN : 0}
+          hidden={hidden}
+          clusterView={clusterView}
+          focusCluster={focusCluster}
         />
 
         {/* Inside the scene so the panels sit against the canvas regardless of how
             tall the toolbar and any status banner above it happen to be. */}
         <div className="panels">
+          {clustering && selectedCluster !== undefined && clustering.clusters[selectedCluster] && (
+            <ClusterDetails
+              cluster={clustering.clusters[selectedCluster]!}
+              files={clustering.clusters[selectedCluster]!.members
+                .map((i) => graph.nodes[i]!)
+                .sort((a, b) => b.importance - a.importance)}
+              expanded={expanded.has(selectedCluster)}
+              onToggle={() => toggleCluster(selectedCluster)}
+              onOpenFile={handleFocusSource}
+              onAskAbout={(question) => setPrefill(question)}
+              onClose={() => setSelectedCluster(undefined)}
+            />
+          )}
           {selectedNode && (
             <NodeDetails
               node={selectedNode}

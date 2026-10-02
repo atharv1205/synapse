@@ -1,7 +1,8 @@
 import { Html, OrbitControls } from "@react-three/drei";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
-import { useEffect, useMemo, useRef, useState, type ElementRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ElementRef } from "react";
 import * as THREE from "three";
+import type { Cluster, ClusterEdge } from "../clusters";
 import type { Layout, PositionedNode } from "../layout";
 
 /** Distinct hues for directory colouring, spaced so neighbours stay distinguishable. */
@@ -40,6 +41,21 @@ export interface SceneProps {
   /** Indices highlighted because a Q&A answer cited them. */
   citedIndices: number[];
   onSelect(index: number): void;
+  /**
+   * Per node index, 1 for files folded into a collapsed folder bubble. Hidden files are
+   * drawn at zero size, so they cannot be clicked, and their edges and labels are skipped.
+   */
+  hidden?: Uint8Array;
+}
+
+/** The folder bubbles drawn in place of collapsed folders' files. */
+export interface ClusterView {
+  clusters: Cluster[];
+  edges: ClusterEdge[];
+  /** Per cluster index, 1 while it is collapsed into a bubble. */
+  collapsed: Uint8Array;
+  selected?: number;
+  onSelect(cluster: number): void;
 }
 
 function colorFor(
@@ -53,10 +69,16 @@ function colorFor(
     return target.setHSL(hue, 0.62, 0.62);
   }
 
-  // Importance is PageRank-shaped, with nearly every file near zero, so the ramp reads
-  // sqrt(importance): the same curve node size uses, which spreads the long tail enough
-  // for the middle stains to show up at all.
-  const t = Math.sqrt(Math.min(1, Math.max(0, positioned.node.importance)));
+  return rampColor(positioned.node.importance, target);
+}
+
+/**
+ * Importance is PageRank-shaped, with nearly every file near zero, so the ramp reads
+ * sqrt(importance): the same curve node size uses, which spreads the long tail enough
+ * for the middle stains to show up at all.
+ */
+function rampColor(importance: number, target: THREE.Color): THREE.Color {
+  const t = Math.sqrt(Math.min(1, Math.max(0, importance)));
   for (let i = 1; i < RAMP.length; i++) {
     const lower = RAMP[i - 1]!;
     const upper = RAMP[i]!;
@@ -98,6 +120,7 @@ function Nodes({
   onSelect,
   nodeScale,
   framing,
+  hidden,
 }: SceneProps & { nodeScale: number; framing: number }) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const cited = useMemo(() => new Set(citedIndices), [citedIndices]);
@@ -126,7 +149,7 @@ function Nodes({
       // without competing for attention. Selected and cited nodes always show at size.
       const emphasis = isSelected ? 1.5 : isCited ? 1.25 : 1;
       const dimming = visible || isSelected || isCited ? 1 : 0.3;
-      const scale = radiusFor(positioned, framing) * nodeScale * emphasis * dimming;
+      const scale = hidden?.[positioned.index] ? 0 : radiusFor(positioned, framing) * nodeScale * emphasis * dimming;
 
       scratch.position.set(positioned.x, positioned.y, positioned.z);
       scratch.matrix.makeScale(scale, scale, scale).setPosition(scratch.position);
@@ -142,7 +165,7 @@ function Nodes({
 
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [layout, threshold, colorMode, selectedIndex, cited, scratch, nodeScale, framing]);
+  }, [layout, threshold, colorMode, selectedIndex, cited, scratch, nodeScale, framing, hidden]);
 
   const handleClick = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
@@ -161,6 +184,90 @@ function Nodes({
       <meshStandardMaterial roughness={0.45} metalness={0.1} />
     </instancedMesh>
   );
+}
+
+interface Anchor {
+  key: number | string;
+  x: number;
+  y: number;
+  z: number;
+  /** Shown even when it overlaps, e.g. the selected item. */
+  always?: boolean;
+}
+
+/**
+ * Every label on the map, from every layer, so overlaps are judged across all of them:
+ * an expanded folder's file names and the folder bubbles' names must not pile up on
+ * each other any more than within their own set. Groups are checked in the order they
+ * are listed in `GROUP_ORDER`, and anything marked `always` goes first.
+ */
+class LabelRegistry {
+  readonly groups = new Map<string, Anchor[]>();
+  readonly elements = new Map<string, HTMLElement>();
+}
+
+/** Files before folders: a folder was expanded precisely to read its files' names. */
+const GROUP_ORDER = ["files", "folders"];
+
+/**
+ * Registers one layer's labels and returns a ref factory for their elements. Keys are
+ * namespaced by group, so a file and a folder never collide.
+ */
+function useLabelGroup(registry: LabelRegistry, group: string, anchors: Anchor[]) {
+  useEffect(() => {
+    registry.groups.set(group, anchors);
+    return () => {
+      registry.groups.delete(group);
+    };
+  }, [registry, group, anchors]);
+
+  return useCallback(
+    (key: number | string) => (element: HTMLElement | null) => {
+      const id = `${group}:${key}`;
+      if (element) registry.elements.set(id, element);
+      else registry.elements.delete(id);
+    },
+    [registry, group],
+  );
+}
+
+/**
+ * Hides any label that would overlap one placed before it. Checked a few times a second
+ * against where the labels sit on screen, so a label reappears as soon as rotating the
+ * graph gives it room.
+ */
+function LabelCollisions({ registry }: { registry: LabelRegistry }) {
+  const camera = useThree((state) => state.camera);
+  const ticks = useRef(0);
+  const scratch = useMemo(() => new THREE.Vector3(), []);
+
+  useFrame(() => {
+    if (ticks.current++ % 6 !== 0) return;
+    const ordered = GROUP_ORDER.flatMap((group) =>
+      (registry.groups.get(group) ?? []).map((anchor) => ({ group, anchor })),
+    );
+    // Selected items first, whatever their layer, so they always win.
+    ordered.sort((a, b) => Number(Boolean(b.anchor.always)) - Number(Boolean(a.anchor.always)));
+
+    const placed: Array<[number, number, number, number]> = [];
+    for (const { group, anchor } of ordered) {
+      const element = registry.elements.get(`${group}:${anchor.key}`);
+      if (!element) continue;
+      scratch.set(anchor.x, anchor.y, anchor.z).project(camera);
+      const behind = scratch.z > 1;
+      // Where the label really is, which a hidden label still has. Re-deriving it from
+      // the projection drifted from drei's placement under the panel's view offset, and
+      // let a file name sit on top of a folder name.
+      const rect = element.getBoundingClientRect();
+      const box: [number, number, number, number] = [rect.left - 1, rect.top - 1, rect.right + 1, rect.bottom + 1];
+      const clash = placed.some(([l, t, r, b]) => box[0] < r && box[2] > l && box[1] < b && box[3] > t);
+      const show = !behind && (anchor.always || !clash);
+      element.style.visibility = show ? "visible" : "hidden";
+      if (show) placed.push(box);
+    }
+  });
+
+  return null;
 }
 
 /** How many of the most important prominent files get a name on the map. */
@@ -191,22 +298,26 @@ function Labels({
   threshold,
   selectedIndex,
   framing,
+  hidden,
+  registry,
 }: {
   layout: Layout;
   threshold: number;
   selectedIndex?: number;
   framing: number;
+  hidden?: Uint8Array;
+  registry: LabelRegistry;
 }) {
   const labelled = useMemo(() => {
     const top = layout.nodes
-      .filter((n) => n.node.importance >= threshold)
+      .filter((n) => n.node.importance >= threshold && !hidden?.[n.index])
       .sort((a, b) => b.node.importance - a.node.importance)
       .slice(0, LABEL_COUNT);
     const selected = layout.nodes.find((n) => n.index === selectedIndex);
     // The selected file goes first, so it wins every overlap below.
-    if (selected) return [selected, ...top.filter((n) => n !== selected)];
+    if (selected && !hidden?.[selected.index]) return [selected, ...top.filter((n) => n !== selected)];
     return top;
-  }, [layout, threshold, selectedIndex]);
+  }, [layout, threshold, selectedIndex, hidden]);
 
   // Two labelled files with the same name (src/flask/app.py, src/flask/sansio/app.py)
   // would be indistinguishable, so clashing names get their folder.
@@ -219,37 +330,18 @@ function Labels({
     });
   }, [labelled]);
 
-  // Labels that would overlap a more important one are hidden, in order of importance.
-  // Checked a few times a second against the camera's real projection, so a label
-  // reappears as soon as rotating the graph gives it room.
-  const spans = useRef(new Map<number, HTMLSpanElement>());
-  const camera = useThree((state) => state.camera);
-  const size = useThree((state) => state.size);
-  const ticks = useRef(0);
-  const scratch = useMemo(() => new THREE.Vector3(), []);
-
-  useFrame(() => {
-    if (ticks.current++ % 6 !== 0) return;
-    const placed: Array<[number, number, number, number]> = [];
-
-    labelled.forEach((positioned, i) => {
-      const span = spans.current.get(positioned.index);
-      if (!span) return;
-      scratch.set(positioned.x, positioned.y, positioned.z).project(camera);
-      const behind = scratch.z > 1;
-      const x = ((scratch.x + 1) / 2) * size.width;
-      const y = ((1 - scratch.y) / 2) * size.height;
-      const w = span.offsetWidth + 2;
-      const h = span.offsetHeight + 2;
-      const box: [number, number, number, number] = [x - w / 2, y - h, x + w / 2, y];
-      const clash = placed.some(
-        ([l, t, r, b]) => box[0] < r && box[2] > l && box[1] < b && box[3] > t,
-      );
-      const show = !behind && (i === 0 && positioned.index === selectedIndex ? true : !clash);
-      span.style.visibility = show ? "visible" : "hidden";
-      if (show) placed.push(box);
-    });
-  });
+  const anchors = useMemo(
+    () =>
+      labelled.map((positioned, i) => ({
+        key: positioned.index,
+        x: positioned.x,
+        y: positioned.y,
+        z: positioned.z,
+        always: i === 0 && positioned.index === selectedIndex,
+      })),
+    [labelled, selectedIndex],
+  );
+  const register = useLabelGroup(registry, "files", anchors);
 
   return (
     <>
@@ -265,10 +357,7 @@ function Labels({
             style={{ pointerEvents: "none" }}
           >
             <span
-              ref={(span) => {
-                if (span) spans.current.set(positioned.index, span);
-                else spans.current.delete(positioned.index);
-              }}
+              ref={register(positioned.index)}
               className={`node-label${positioned.index === selectedIndex ? " is-selected" : ""}`}
               title={positioned.node.path}
             >
@@ -292,10 +381,12 @@ function Edges({
   layout,
   threshold,
   opacity,
+  hidden,
 }: {
   layout: Layout;
   threshold: number;
   opacity: number;
+  hidden?: Uint8Array;
 }) {
   const geometry = useMemo(() => {
     const visible = layout.edges.filter((edge) => {
@@ -304,6 +395,8 @@ function Edges({
       return (
         from !== undefined &&
         to !== undefined &&
+        !hidden?.[edge.from] &&
+        !hidden?.[edge.to] &&
         from.node.importance >= threshold &&
         to.node.importance >= threshold
       );
@@ -339,7 +432,7 @@ function Edges({
     buffer.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     buffer.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     return buffer;
-  }, [layout, threshold]);
+  }, [layout, threshold, hidden]);
 
   useEffect(() => () => geometry.dispose(), [geometry]);
 
@@ -350,6 +443,167 @@ function Edges({
   );
 }
 
+interface Frame {
+  center: { x: number; y: number; z: number };
+  radius: number;
+}
+
+/**
+ * What the folders view frames: every folder bubble, rather than the important files the
+ * files view frames. Test and example folders often sit well away from the core, and a
+ * folder view that cut them off would hide most bubbles. The centre is the middle of the
+ * bubbles' bounding box, not their file-weighted centroid: on home-assistant two giant
+ * overflow bubbles pulled a weighted centre to one end, pushing the rest off-screen.
+ */
+function clusterFrame(clusters: Cluster[], floor: number): Frame {
+  if (clusters.length === 0) return { center: { x: 0, y: 0, z: 0 }, radius: floor };
+  const mid = (axis: "x" | "y" | "z") => {
+    const values = clusters.map((c) => c[axis]);
+    return (Math.min(...values) + Math.max(...values)) / 2;
+  };
+  const center = { x: mid("x"), y: mid("y"), z: mid("z") };
+  const furthest = Math.max(...clusters.map((c) => Math.hypot(c.x - center.x, c.y - center.y, c.z - center.z)));
+  // The camera sits 1.6 radii out, which with a 55° field of view shows about 0.8 radii
+  // above and below the centre, and less when the error banner shortens the canvas.
+  return { center, radius: Math.max(furthest * 1.4, floor) };
+}
+
+/** How many folder bubbles get a name; the largest first, plus the selected one. */
+const CLUSTER_LABEL_COUNT = 15;
+
+/**
+ * Folders drawn as bubbles in place of their files: one instanced mesh for the bubbles
+ * and one line buffer for the imports between folders, so even home-assistant's 18,932
+ * files become a few dozen shapes and a few hundred lines. A bubble's size follows its
+ * file count and its colour its most important file.
+ */
+function ClusterLayer({
+  view,
+  framing,
+  registry,
+}: {
+  view: ClusterView;
+  framing: number;
+  registry: LabelRegistry;
+}) {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const geometry = useMemo(() => new THREE.SphereGeometry(1, 24, 18), []);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+
+  const largest = useMemo(() => Math.max(1, ...view.clusters.map((c) => c.members.length)), [view.clusters]);
+  const radiusOf = (cluster: Cluster) => framing * (0.025 + 0.075 * Math.sqrt(cluster.members.length / largest));
+
+  useEffect(() => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    const matrix = new THREE.Matrix4();
+    const color = new THREE.Color();
+    const white = new THREE.Color("#ffffff");
+    view.clusters.forEach((cluster, i) => {
+      const scale = view.collapsed[i] ? radiusOf(cluster) : 0;
+      matrix.makeScale(scale, scale, scale).setPosition(cluster.x, cluster.y, cluster.z);
+      mesh.setMatrixAt(i, matrix);
+      rampColor(cluster.importance, color);
+      if (view.selected === i) color.lerp(white, 0.6);
+      mesh.setColorAt(i, color);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    // radiusOf depends only on framing and largest, both listed.
+  }, [view, framing, largest]);
+
+  // Imports between two collapsed folders, brighter for more of them.
+  const lines = useMemo(() => {
+    const shown = view.edges.filter((e) => view.collapsed[e.from] && view.collapsed[e.to]);
+    const heaviest = Math.max(1, ...shown.map((e) => e.weight));
+    const positions = new Float32Array(shown.length * 6);
+    const colors = new Float32Array(shown.length * 6);
+    const dim = new THREE.Color("#1c2645");
+    const bright = new THREE.Color("#4fa8c4");
+    const mixed = new THREE.Color();
+    shown.forEach((edge, i) => {
+      const from = view.clusters[edge.from]!;
+      const to = view.clusters[edge.to]!;
+      positions.set([from.x, from.y, from.z, to.x, to.y, to.z], i * 6);
+      mixed.copy(dim).lerp(bright, 0.25 + 0.75 * Math.log1p(edge.weight) / Math.log1p(heaviest));
+      colors.set([dim.r, dim.g, dim.b, mixed.r, mixed.g, mixed.b], i * 6);
+    });
+    const buffer = new THREE.BufferGeometry();
+    buffer.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    buffer.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    return buffer;
+  }, [view]);
+  useEffect(() => () => lines.dispose(), [lines]);
+
+  const labelled = useMemo(() => {
+    const order = view.clusters
+      .map((cluster, i) => ({ cluster, i }))
+      .filter(({ i }) => view.collapsed[i]);
+    const top = order.slice(0, CLUSTER_LABEL_COUNT);
+    const selected = order.find(({ i }) => i === view.selected);
+    if (selected) return [selected, ...top.filter((entry) => entry !== selected)];
+    return top;
+  }, [view]);
+
+  const anchors = useMemo(
+    () =>
+      labelled.map(({ cluster, i }) => ({
+        key: cluster.id,
+        x: cluster.x,
+        y: cluster.y + radiusOf(cluster) * 1.25,
+        z: cluster.z,
+        always: i === view.selected,
+      })),
+    // radiusOf depends only on framing and largest.
+    [labelled, view.selected, framing, largest],
+  );
+  const register = useLabelGroup(registry, "folders", anchors);
+
+  // Bubbles overlap where the layout packs folders together, and on home-assistant two
+  // giant ones sit over the core. Once a folder is open its files must show through them,
+  // so the rest turn to glass.
+  const opened = view.collapsed.some((collapsed) => !collapsed);
+
+  const handleClick = (event: ThreeEvent<MouseEvent>) => {
+    event.stopPropagation();
+    if (event.instanceId !== undefined && view.collapsed[event.instanceId]) view.onSelect(event.instanceId);
+  };
+
+  return (
+    <>
+      <lineSegments geometry={lines}>
+        <lineBasicMaterial vertexColors transparent opacity={0.7} />
+      </lineSegments>
+      <instancedMesh ref={meshRef} args={[geometry, undefined, view.clusters.length]} onClick={handleClick}>
+        <meshStandardMaterial
+          roughness={0.35}
+          metalness={0.05}
+          transparent
+          opacity={opened ? 0.18 : 0.88}
+          depthWrite={!opened}
+        />
+      </instancedMesh>
+      {labelled.map(({ cluster, i }) => (
+        <Html
+          key={cluster.id}
+          position={[cluster.x, cluster.y + radiusOf(cluster) * 1.25, cluster.z]}
+          center
+          zIndexRange={[1, 0]}
+          style={{ pointerEvents: "none" }}
+        >
+          <span
+            ref={register(cluster.id)}
+            className={`node-label cluster-label${view.selected === i ? " is-selected" : ""}`}
+            title={cluster.folder || "(root)"}
+          >
+            {cluster.label} <span className="cluster-count">{cluster.members.length.toLocaleString()}</span>
+          </span>
+        </Html>
+      ))}
+    </>
+  );
+}
+
 /**
  * Eases the orbit target and the camera onto a node when one is focused, instead of
  * cutting, so it stays obvious where the view travelled from.
@@ -357,27 +611,41 @@ function Edges({
 function CameraFocus({
   layout,
   focusIndex,
+  focusCluster,
   radius,
   mode,
+  frame,
 }: {
   layout: Layout;
   focusIndex?: number;
+  /** A folder to fly to, by object so focusing the same one twice still moves. */
+  focusCluster?: Cluster;
   radius: number;
   mode: SceneMode;
+  /** What the view frames; switching between files and folders flies to the new one. */
+  frame: Frame;
 }) {
   const controls = useRef<ElementRef<typeof OrbitControls>>(null);
   const goal = useRef(new THREE.Vector3());
   const distance = useRef(radius);
   const active = useRef(false);
 
-  // Orbit around the important files, not the origin; see Layout.center. Memoised so
-  // the controls only take it when the layout changes, not on every render, which would
-  // yank the target back from a node the camera is flying to.
+  // Orbit around the frame's centre (the important files, or the folders), not the
+  // origin. Fixed at mount: later frames are flown to below rather than jumped to, and a
+  // target prop that changed on every render would yank the camera off a node.
   const showcase = mode === "showcase";
-  const center = useMemo(() => {
-    const point = showcase ? layout.overview.center : layout.center;
-    return new THREE.Vector3(point.x, point.y, point.z);
-  }, [layout, showcase]);
+  const [center] = useState(() => new THREE.Vector3(frame.center.x, frame.center.y, frame.center.z));
+  const firstFrame = useRef(true);
+
+  useEffect(() => {
+    if (firstFrame.current) {
+      firstFrame.current = false;
+      return;
+    }
+    goal.current.set(frame.center.x, frame.center.y, frame.center.z);
+    distance.current = frame.radius * 1.6;
+    active.current = true;
+  }, [frame]);
 
   useEffect(() => {
     if (focusIndex === undefined) return;
@@ -393,6 +661,15 @@ function CameraFocus({
     distance.current = Math.min(Math.max(own, radius * 0.5), radius * 1.4);
     active.current = true;
   }, [focusIndex, layout, radius]);
+
+  useEffect(() => {
+    if (!focusCluster) return;
+    goal.current.set(focusCluster.x, focusCluster.y, focusCluster.z);
+    // Frame the folder's own files: far enough to take in their spread, near enough that
+    // they read at the size they have in the files view.
+    distance.current = Math.min(Math.max(focusCluster.spread * 2.4, radius * 0.35), radius * 1.4);
+    active.current = true;
+  }, [focusCluster, radius]);
 
   useFrame((state, delta) => {
     const orbit = controls.current;
@@ -468,6 +745,9 @@ export function GraphScene(
     mode?: SceneMode;
     /** Pixels of the canvas's right edge covered by panels, to centre the view beside. */
     occludedRight?: number;
+    /** Folder bubbles, in the folders view. */
+    clusterView?: ClusterView;
+    focusCluster?: Cluster;
   },
 ) {
   const { layout, mode = "tool", occludedRight = 0 } = props;
@@ -476,10 +756,23 @@ export function GraphScene(
   // its job is to show the shape of a codebase. The showcase sits beside the headline and
   // nobody zooms it, so it draws nodes heavier: on screen a node's size goes as its scale
   // over the camera's distance factor, 2.8 / 1.4 here against 1 / 1.6 in the explorer.
-  const frame = showcase ? layout.overview : layout;
+  const folders = props.clusterView?.clusters;
+  const frame = useMemo<Frame>(
+    () =>
+      showcase
+        ? layout.overview
+        : folders
+          ? clusterFrame(folders, layout.radius)
+          : { center: layout.center, radius: layout.radius },
+    [showcase, folders, layout],
+  );
+  // Everything on screen is sized against one frame. In the folders view that is the
+  // folders' frame, so an expanded folder's files come out smaller than a bubble rather
+  // than as specks beside giant spheres.
   const framing = frame.radius;
-  const distance = framing * (showcase ? 1.4 : 1.6);
+  const distance = frame.radius * (showcase ? 1.4 : 1.6);
   const { center } = frame;
+  const [labels] = useState(() => new LabelRegistry());
 
   // The far plane has to reach past the furthest node as seen from the camera, not just
   // past the framing radius. A hardcoded 20,000 clipped an entire 18,851-node scene out
@@ -516,7 +809,7 @@ export function GraphScene(
       <directionalLight position={[1, 1, 1]} intensity={1.1} />
       <directionalLight position={[-1, -0.5, -1]} intensity={0.35} />
 
-      <Edges layout={layout} threshold={props.threshold} opacity={showcase ? 0.75 : 0.5} />
+      <Edges layout={layout} threshold={props.threshold} opacity={showcase ? 0.75 : 0.5} hidden={props.hidden} />
       <Nodes {...props} nodeScale={showcase ? 2.8 : 1} framing={framing} />
       {!showcase && (
         <Labels
@@ -524,10 +817,21 @@ export function GraphScene(
           threshold={props.threshold}
           selectedIndex={props.selectedIndex}
           framing={framing}
+          hidden={props.hidden}
+          registry={labels}
         />
       )}
+      {props.clusterView && <ClusterLayer view={props.clusterView} framing={frame.radius} registry={labels} />}
+      {!showcase && <LabelCollisions registry={labels} />}
 
-      <CameraFocus layout={layout} focusIndex={props.focusIndex} radius={framing} mode={mode} />
+      <CameraFocus
+        layout={layout}
+        focusIndex={props.focusIndex}
+        focusCluster={props.focusCluster}
+        radius={framing}
+        mode={mode}
+        frame={frame}
+      />
       <ViewOffset occludedRight={occludedRight} />
     </Canvas>
   );

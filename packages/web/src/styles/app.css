@@ -246,6 +246,37 @@
   border-color: var(--text);
 }
 
+.app .cluster-label {
+  font-family: var(--font);
+  font-weight: 550;
+}
+
+.app .cluster-count {
+  margin-left: 4px;
+  font-family: var(--mono);
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+.app .node-label.is-selected .cluster-count {
+  color: var(--field);
+}
+
+.app .cluster-actions {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.app .cluster-actions button.primary {
+  margin: 0;
+}
+
+.app .toolbar-button-quiet {
+  font-size: 12.5px;
+  padding: 4px 10px;
+}
+
 /* --- metrics ------------------------------------------------------------- */
 
 .app .metric-grid {

@@ -3,6 +3,7 @@ import { compactCount, type ProviderAvailability, type ProviderName } from "../a
 import { StarIcon } from "./icons";
 import { Link } from "../router";
 import { SITE } from "../site";
+import type { ViewMode } from "../App";
 import type { ColorMode } from "./GraphScene";
 import { ProviderSwitch } from "./ProviderSwitch";
 
@@ -25,6 +26,11 @@ export interface ToolbarProps {
   provider?: ProviderName;
   providers?: Record<ProviderName, ProviderAvailability>;
   onProviderChange(provider: ProviderName): void;
+  viewMode: ViewMode;
+  onViewModeChange(mode: ViewMode): void;
+  /** Folders currently showing their files; offers "Collapse all" when above zero. */
+  expandedCount: number;
+  onCollapseAll(): void;
 }
 
 /**
@@ -48,6 +54,10 @@ export function Toolbar({
   provider,
   providers,
   onProviderChange,
+  viewMode,
+  onViewModeChange,
+  expandedCount,
+  onCollapseAll,
 }: ToolbarProps) {
   return (
     <div className="toolbar">
@@ -102,6 +112,19 @@ export function Toolbar({
           onChange={(event) => onTopPercentChange(Number(event.target.value))}
         />
       </label>
+
+      <label className="toolbar-group">
+        <span className="control-label">View</span>
+        <select value={viewMode} onChange={(event) => onViewModeChange(event.target.value as ViewMode)}>
+          <option value="files">files</option>
+          <option value="folders">folders</option>
+        </select>
+      </label>
+      {expandedCount > 0 && (
+        <button className="toolbar-button-quiet" onClick={onCollapseAll}>
+          Collapse all
+        </button>
+      )}
 
       <label className="toolbar-group">
         <span className="control-label">Colour</span>
