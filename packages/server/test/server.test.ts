@@ -151,6 +151,17 @@ describe("the graph and ask routes", () => {
     await app.close();
   });
 
+  it("reports GitHub's details for the served repository in status", async () => {
+    const repository = { host: "github.com", owner: "pallets", name: "flask", fullName: "pallets/flask", url: "https://github.com/pallets/flask", stars: 69000, fetchedAt: "now" };
+    const graph = { version: 2, source: "fixture", stats: { fileCount: 0 }, nodes: [], edges: [], functionNodes: [], functionEdges: [], repository };
+    await writeFile(path.join(cacheDir, "graph.json"), JSON.stringify(graph));
+    const app = await createServer({ root: dir, cacheDir, ollamaUrl: "http://127.0.0.1:9" });
+    const status = (await app.inject({ url: "/api/status", headers: LOCAL })).json();
+    assert.equal(status.repository.fullName, "pallets/flask");
+    assert.equal(status.repository.stars, 69000);
+    await app.close();
+  });
+
   it("returns the graph when there is one", async () => {
     const app = await server({ withGraph: true });
     const response = await app.inject({ url: "/api/graph", headers: LOCAL });

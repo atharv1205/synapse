@@ -82,6 +82,7 @@ analyze:
                          environment variable, which keeps it out of shell history.
   --top <n>              How many files to list in the summary (default: 10)
   --skip-churn           Skip the git history pass
+  --skip-github          Skip fetching the repository's details from GitHub
   --skip-summarize       Skip LLM summarisation entirely
   --summarize-top <n>    How many top files to summarise (default: 50)
   --json                 Print the graph to stdout instead of writing a file
@@ -103,6 +104,7 @@ serve:
   --host <addr>          Address to bind (default: 127.0.0.1)
   --no-open              Do not open a browser window
   --skip-summarize       Skip summarisation if a graph has to be built first
+  --skip-github          Skip fetching the repository's details from GitHub
 
 Shared:
   --out <dir>            Where .synapse artefacts live (default: <path>/.synapse)
@@ -118,6 +120,14 @@ Shared:
 A local path is read in place and never modified. A URL is cloned shallowly into a
 temporary directory, analysed, and removed; its artefacts land in `.synapse/` in the
 directory you ran the command from.
+
+For a repository on GitHub, whether a URL or a local folder whose `origin` points
+there, the analysis also asks GitHub's API for its description, stars, forks, language,
+topics, licence and default branch, alongside the parse so it adds no time. The explorer
+and start page show them. It is decoration, never a requirement: offline, rate-limited
+(60 requests an hour without a token) or private without a token, the analysis notes
+why and carries on. A token given for a private clone also authenticates this one
+request; `--skip-github` turns the lookup off.
 
 ## Providers
 
@@ -221,6 +231,8 @@ A trimmed `graph.json`:
   "version": 2,
   "source": "https://github.com/owner/repo",
   "stats": { "fileCount": 12, "edgeCount": 28, "externalImports": 21, … },
+  "repository": { "fullName": "owner/repo", "description": "…", "stars": 1200,
+                  "language": "TypeScript", "license": "MIT", … },   // GitHub repos only
   "nodes": [
     {
       "id": "src/hub.ts",

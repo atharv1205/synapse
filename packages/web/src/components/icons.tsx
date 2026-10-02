@@ -47,3 +47,11 @@ export function CloseIcon({ className = "icon" }: IconProps) {
     </svg>
   );
 }
+
+export function StarIcon({ className = "icon" }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" aria-hidden="true" {...stroke}>
+      <path d="M8 1.75l1.9 3.85 4.25.62-3.08 3 .73 4.23L8 11.45l-3.8 2 .73-4.23-3.08-3 4.25-.62L8 1.75z" />
+    </svg>
+  );
+}

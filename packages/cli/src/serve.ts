@@ -23,6 +23,7 @@ export interface ServeOptions {
   embedModel?: string;
   ollamaUrl?: string;
   skipSummarize?: boolean;
+  skipGitHub?: boolean;
   summarizeTop?: number;
   /** Suppress opening a browser window. */
   noOpen?: boolean;
@@ -106,6 +107,7 @@ export async function serve(options: ServeOptions): Promise<void> {
           token: options.token,
           provider: options.provider,
           skipSummarize: options.skipSummarize,
+          skipGitHub: options.skipGitHub,
           summarizeTop: options.summarizeTop,
         },
     onProgress: (line) => console.error(`  ${line}`),

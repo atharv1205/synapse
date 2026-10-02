@@ -54,7 +54,9 @@ try {
   check(version === manifest.version, `--version printed ${version}, expected ${manifest.version}`);
 
   step("analyze this repository");
-  execFileSync(bin, ["analyze", ROOT, "--skip-summarize", "--out", cache], {
+  // --skip-github keeps this hermetic: in CI the checkout has a GitHub remote, and the
+  // unauthenticated API allows 60 requests an hour per runner IP.
+  execFileSync(bin, ["analyze", ROOT, "--skip-summarize", "--skip-github", "--out", cache], {
     stdio: "inherit",
     shell: process.platform === "win32",
   });

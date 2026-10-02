@@ -40,6 +40,7 @@ analyze:
                          environment variable, which keeps it out of shell history.
   --top <n>              How many files to list in the summary (default: 10)
   --skip-churn           Skip the git history pass
+  --skip-github          Skip fetching the repository's details from GitHub
   --skip-summarize       Skip LLM summarisation entirely
   --summarize-top <n>    How many top files to summarise (default: ${DEFAULT_SUMMARIZE_TOP})
   --json                 Print the graph to stdout instead of writing a file
@@ -61,6 +62,7 @@ serve:
   --host <addr>          Address to bind (default: 127.0.0.1)
   --no-open              Do not open a browser window
   --skip-summarize       Skip summarisation if a graph has to be built first
+  --skip-github          Skip fetching the repository's details from GitHub
 
 Shared:
   --out <dir>            Where .synapse artefacts live (default: <path>/.synapse)
@@ -179,6 +181,17 @@ function printGraphSummary(graph: RepoGraph, top: number): void {
   const { stats } = graph;
 
   console.log(`\nSource:    ${graph.source}`);
+  const repo = graph.repository;
+  if (repo) {
+    const facts = [
+      repo.stars !== undefined ? `${repo.stars.toLocaleString("en-US")} stars` : undefined,
+      repo.language,
+      repo.license,
+      repo.archived ? "archived" : undefined,
+    ].filter(Boolean);
+    console.log(`GitHub:    ${repo.fullName}${facts.length ? ` (${facts.join(", ")})` : ""}`);
+    if (repo.description) console.log(`           ${repo.description}`);
+  }
   console.log(`Files:     ${stats.fileCount}`);
   console.log(`Imports:   ${stats.edgeCount} internal, ${stats.externalImports} external`);
   console.log(`Functions: ${stats.functionCount} (${stats.functionEdgeCount} call edges)`);
@@ -219,6 +232,7 @@ async function runAnalyze(target: string, values: Record<string, unknown>): Prom
     token: tokenFrom(values),
     skipChurn: values["skip-churn"] === true,
     skipSummarize: values["skip-summarize"] === true,
+    skipGitHub: values["skip-github"] === true,
     provider: llm.provider,
     model: llm.model,
     ollamaUrl: llm.baseUrl,
@@ -343,6 +357,7 @@ async function main(): Promise<void> {
       depth: { type: "string" },
       top: { type: "string" },
       "skip-churn": { type: "boolean" },
+      "skip-github": { type: "boolean" },
       "skip-summarize": { type: "boolean" },
       model: { type: "string" },
       provider: { type: "string" },
@@ -401,6 +416,7 @@ async function main(): Promise<void> {
         embedModel: llm.embedModel,
         ollamaUrl: llm.baseUrl,
         skipSummarize: values["skip-summarize"] === true,
+        skipGitHub: values["skip-github"] === true,
         summarizeTop: values["summarize-top"] ? Number(values["summarize-top"]) : undefined,
         noOpen: values["no-open"] === true,
       });

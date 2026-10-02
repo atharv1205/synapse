@@ -95,6 +95,36 @@ export interface FunctionNode {
   summary?: string;
 }
 
+/**
+ * What the code host says about a repository: GitHub's description, stars and the like.
+ * Present only when the analysed repository is on GitHub and the lookup succeeded.
+ */
+export interface RepositoryInfo {
+  host: "github.com";
+  owner: string;
+  name: string;
+  /** `owner/name` as GitHub spells it. */
+  fullName: string;
+  /** The repository's page on GitHub. */
+  url: string;
+  description?: string;
+  homepage?: string;
+  stars?: number;
+  forks?: number;
+  /** GitHub's primary language for the repository. */
+  language?: string;
+  topics?: string[];
+  /** SPDX identifier, e.g. "MIT". */
+  license?: string;
+  defaultBranch?: string;
+  /** When the repository was last pushed to. */
+  pushedAt?: string;
+  archived?: boolean;
+  private?: boolean;
+  /** When these details were fetched; they go stale. */
+  fetchedAt: string;
+}
+
 export interface RepoGraph {
   /**
    * 2 — `nodes[].functions` holds ids into `functionNodes` rather than copies of the
@@ -109,6 +139,8 @@ export interface RepoGraph {
   edges: GraphEdge[];
   functionNodes: FunctionNode[];
   functionEdges: GraphEdge[];
+  /** The code host's details for the repository, when it is on GitHub. */
+  repository?: RepositoryInfo;
   /** Present whenever summarisation was attempted, including when it was skipped. */
   summarization?: SummarizationReport;
   /** The files behind `stats.parseFailures`, so a regression names itself. */

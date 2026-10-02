@@ -1,6 +1,13 @@
 export * from "./types.js";
 export { analyze, writeGraph, type AnalyzeOptions } from "./analyze.js";
 export { resolveSource, isRepoUrl, redactUrl, type ResolvedSource } from "./ingest/source.js";
+export {
+  fetchRepositoryInfo,
+  gitHubRepoOf,
+  parseGitHubRepo,
+  type GitHubRepo,
+  type RepositoryLookup,
+} from "./ingest/github.js";
 export { walkSourceFiles, languageForPath, type WalkResult } from "./ingest/walk.js";
 export { parseFile, type ParsedFile, type ImportRef, type CallRef } from "./parse/extract.js";
 export { ImportResolver } from "./graph/resolve.js";

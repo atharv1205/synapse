@@ -23,6 +23,7 @@ import {
   type AnalyzeOptions,
   type ProviderName,
   type RepoGraph,
+  type RepositoryInfo,
 } from "@synapse/core";
 
 const PROVIDERS: ProviderName[] = ["ollama", "gemini", "anthropic"];
@@ -72,6 +73,7 @@ export interface AnalysisJob {
   token?: string;
   provider?: ProviderName;
   skipSummarize?: boolean;
+  skipGitHub?: boolean;
   summarizeTop?: number;
 }
 
@@ -98,6 +100,8 @@ export interface StatusResponse {
   chatModel: { name: string; available: boolean; message?: string };
   embedModel: { name: string; available: boolean; message?: string };
   graph: { exists: boolean; fileCount?: number; generatedAt?: number | string };
+  /** GitHub's details for the served repository, when it is on GitHub. */
+  repository?: RepositoryInfo;
   analysis: AnalysisState;
   /**
    * Which backend answers, and the note explaining why embeddings may come from a
@@ -276,6 +280,7 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
           model: modelsFor(provider).model,
           ollamaUrl: config.ollamaUrl,
           skipSummarize: job.skipSummarize,
+          skipGitHub: job.skipGitHub,
           summarizeTop: job.summarizeTop,
           onProgress: report,
         });
@@ -344,6 +349,7 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
       graph: graph
         ? { exists: true, fileCount: graph.stats.fileCount, generatedAt: graph.generatedAt }
         : { exists: false },
+      repository: graph?.repository,
       analysis,
       index: store.size > 0 ? { exists: true, chunks: store.size, dim: store.dim } : { exists: false },
       canAsk: chat.ok && embed.ok && graph !== undefined,

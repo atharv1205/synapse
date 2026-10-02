@@ -1,4 +1,4 @@
-import type { RepoGraph, Source } from "@synapse/core";
+import type { RepoGraph, RepositoryInfo, Source } from "@synapse/core";
 
 export type ProviderName = "ollama" | "gemini" | "anthropic";
 
@@ -28,6 +28,8 @@ export interface Status {
   chatModel: { name: string; available: boolean; message?: string };
   embedModel: { name: string; available: boolean; message?: string };
   graph: { exists: boolean; fileCount?: number; generatedAt?: string };
+  /** GitHub's details for the served repository, when it is on GitHub. */
+  repository?: RepositoryInfo;
   analysis: { running: boolean; message?: string; error?: string };
   index: { exists: boolean; chunks?: number; dim?: number };
   canAsk: boolean;
@@ -138,4 +140,11 @@ export const api = {
 export function repoNameOf(root: string): string {
   // A served URL ends in `repo` or `repo.git`; a path ends in the directory name.
   return root.replace(/[\\/]+$/, "").split(/[\\/:]/).pop()?.replace(/\.git$/, "") || root;
+}
+
+const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+
+/** 69000 → "69K": star and fork counts read at a glance. */
+export function compactCount(value: number): string {
+  return compact.format(value);
 }

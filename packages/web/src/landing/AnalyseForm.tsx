@@ -87,7 +87,8 @@ export function AnalyseForm({ providers, defaultProvider }: AnalyseFormProps) {
           disabled={pending}
         />
         <p className="analyse-note">
-          Used once to clone, then discarded. Never saved, logged or shown again.
+          Used for this repository only, to clone it and read its GitHub details, then
+          discarded. Never saved, logged or shown again.
         </p>
       </details>
 

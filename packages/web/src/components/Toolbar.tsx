@@ -1,4 +1,6 @@
-import type { ProviderAvailability, ProviderName } from "../api";
+import type { RepositoryInfo } from "@synapse/core";
+import { compactCount, type ProviderAvailability, type ProviderName } from "../api";
+import { StarIcon } from "./icons";
 import { Link } from "../router";
 import { SITE } from "../site";
 import type { ColorMode } from "./GraphScene";
@@ -7,6 +9,8 @@ import { ProviderSwitch } from "./ProviderSwitch";
 export interface ToolbarProps {
   /** The served repository's directory name, from /api/status. */
   repoName?: string;
+  /** GitHub's details, when the repository is on GitHub. */
+  repository?: RepositoryInfo;
   fileCount: number;
   /** How many nodes are at or above the current cutoff. */
   visibleCount: number;
@@ -31,6 +35,7 @@ const STEP = 0.1;
 
 export function Toolbar({
   repoName,
+  repository,
   fileCount,
   visibleCount,
   topPercent,
@@ -51,9 +56,28 @@ export function Toolbar({
           {SITE.name}
         </Link>
         <div className="repo">
-          {repoName && <span className="repo-name">{repoName}</span>}
+          {repository ? (
+            <a
+              className="repo-name"
+              href={repository.url}
+              target="_blank"
+              rel="noreferrer"
+              title={repository.description ?? `${repository.fullName} on GitHub`}
+            >
+              {repository.fullName}
+            </a>
+          ) : (
+            repoName && <span className="repo-name">{repoName}</span>
+          )}
           <span className="repo-count">
             {visibleCount.toLocaleString()} of {fileCount.toLocaleString()} files prominent
+            {repository?.stars !== undefined && (
+              <span className="repo-stars" title={`${repository.stars.toLocaleString()} stars on GitHub`}>
+                <StarIcon />
+                {compactCount(repository.stars)}
+              </span>
+            )}
+            {repository?.language && <span className="repo-language">{repository.language}</span>}
           </span>
         </div>
         <Link href="/" className="toolbar-link">

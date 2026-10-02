@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { api, repoNameOf, type Status } from "../api";
+import { api, compactCount, repoNameOf, type Status } from "../api";
 import { GitHubIcon } from "../components/icons";
 import { Link } from "../router";
 import { SITE } from "../site";
@@ -23,6 +23,7 @@ type Served =
       hasGraph: boolean;
       providers: Status["providers"];
       defaultProvider: Status["defaultProvider"];
+      repository: Status["repository"];
     };
 
 /**
@@ -47,6 +48,7 @@ function useServed(): Served {
           hasGraph: status.graph.exists,
           providers: status.providers,
           defaultProvider: status.defaultProvider,
+          repository: status.repository,
         });
       })
       .catch(() => live && setServed({ state: "absent" }));
@@ -138,11 +140,17 @@ export function Landing() {
                     </>
                   ) : served.hasGraph ? (
                     <>
-                      Serving {served.name}, {served.fileCount?.toLocaleString() ?? "?"} files.{" "}
+                      Serving {served.repository?.fullName ?? served.name}
+                      {served.repository?.stars !== undefined &&
+                        ` (${compactCount(served.repository.stars)} stars)`}
+                      , {served.fileCount?.toLocaleString() ?? "?"} files.{" "}
                       <Link href="/graph">Open it</Link>
                     </>
                   ) : null}
                 </p>
+                {served.hasGraph && !served.analysing && served.repository?.description && (
+                  <p className="hero-description">{served.repository.description}</p>
+                )}
               </>
             ) : (
               <div className="hero-actions">

@@ -228,6 +228,7 @@ export function App() {
       </h1>
       <Toolbar
         repoName={status ? repoNameOf(status.root) : undefined}
+        repository={graph.repository}
         fileCount={layout.nodes.length}
         visibleCount={visibleCount}
         topPercent={topPercent}

@@ -227,6 +227,14 @@
   border-radius: var(--radius-s);
 }
 
+.landing .hero-description {
+  max-width: 34em;
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  font-style: italic;
+  color: var(--text-faint);
+}
+
 .landing .hero-status a {
   color: var(--cyan);
 }

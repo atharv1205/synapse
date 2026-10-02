@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fetchRepositoryInfo, gitHubRepoOf, parseGitHubRepo, type RepositoryLookup } from "./ingest/github.js";
 import { resolveSource } from "./ingest/source.js";
 import { walkSourceFiles } from "./ingest/walk.js";
 import { parseFile, type ParsedFile } from "./parse/extract.js";
@@ -39,6 +40,10 @@ export interface AnalyzeOptions {
   cacheDir?: string;
   /** Injected in tests so the suite never reaches a real model. */
   summarizeBackend?: SummarizerBackend;
+  /** Skip asking GitHub for the repository's description, stars and language. */
+  skipGitHub?: boolean;
+  /** Replaces fetch for the GitHub lookup, so tests never reach the network. */
+  githubFetch?: typeof fetch;
   onProgress?: (message: string) => void;
 }
 
@@ -52,6 +57,17 @@ export async function analyze(target: string, options: AnalyzeOptions = {}): Pro
   });
 
   try {
+    // GitHub's details are fetched alongside the parse rather than before it, so they
+    // add no time to a run. A URL names its repository; a local folder is checked for
+    // a GitHub origin remote.
+    const details: Promise<RepositoryLookup | undefined> = options.skipGitHub
+      ? Promise.resolve(undefined)
+      : (async () => {
+          const repo = parseGitHubRepo(target) ?? (await gitHubRepoOf(source.root));
+          if (!repo) return undefined;
+          return fetchRepositoryInfo(repo, { token: options.token, fetch: options.githubFetch });
+        })();
+
     onProgress("Listing source files …");
     const { files, manifests } = await walkSourceFiles(source.root);
     onProgress(`Found ${files.length} source files.`);
@@ -110,6 +126,14 @@ export async function analyze(target: string, options: AnalyzeOptions = {}): Pro
       functionEdges: result.functionEdges,
       parseFailures,
     };
+
+    const lookup = await details;
+    if (lookup?.ok) {
+      graph.repository = lookup.info;
+      onProgress(`GitHub: ${lookup.info.fullName}${lookup.info.stars !== undefined ? `, ${lookup.info.stars.toLocaleString("en-US")} stars` : ""}.`);
+    } else if (lookup) {
+      onProgress(lookup.reason);
+    }
 
     // Summarisation mutates the graph in place, so it must run before the caller writes
     // it out — and while the clone still exists, since it reads the files from disk.
