@@ -8,6 +8,7 @@ import { NodeDetails } from "./components/NodeDetails";
 import { Splash, Spinner, StatusBanner, StatusGate } from "./components/StatusGate";
 import { Toolbar } from "./components/Toolbar";
 import { useLayout } from "./useLayout";
+import { useProviderChoice } from "./components/ProviderSwitch";
 import "./styles/app.css";
 
 /**
@@ -55,15 +56,19 @@ export function App() {
   const [indexing, setIndexing] = useState(false);
   const [indexMessage, setIndexMessage] = useState<string | undefined>();
   const panelsOverlay = useMediaQuery(PANELS_OVERLAY);
+  // Who answers questions and rebuilds the index. Until the viewer picks, the provider
+  // `serve` was started with applies; the choice is remembered in this browser.
+  const [choice, choose] = useProviderChoice();
+  const provider = choice ?? status?.defaultProvider;
 
   const refreshStatus = useCallback(async () => {
     try {
-      setStatus(await api.status());
+      setStatus(await api.status(choice));
       setStatusError(undefined);
     } catch (caught) {
       setStatusError(caught instanceof ApiError ? caught.message : String(caught));
     }
-  }, []);
+  }, [choice]);
 
   useEffect(() => {
     void refreshStatus();
@@ -161,7 +166,7 @@ export function App() {
     setIndexing(true);
     setIndexMessage(undefined);
     try {
-      const report = await api.buildIndex();
+      const report = await api.buildIndex(provider);
       setIndexMessage(`${report.total} chunks (${report.embedded} new, ${report.reused} reused)`);
       await refreshStatus();
     } catch (caught) {
@@ -169,7 +174,7 @@ export function App() {
     } finally {
       setIndexing(false);
     }
-  }, [refreshStatus]);
+  }, [refreshStatus, provider]);
 
   const gate = StatusGate({ status, error: statusError, onRetry: () => void refreshStatus() });
   if (gate) return gate;
@@ -232,6 +237,9 @@ export function App() {
         onTopPercentChange={setTopPercent}
         onColorModeChange={setColorMode}
         onReindex={() => void handleReindex()}
+        provider={provider}
+        providers={status?.providers}
+        onProviderChange={choose}
       />
 
       {status && <StatusBanner status={status} />}
@@ -262,6 +270,7 @@ export function App() {
           <AskPanel
             prefill={prefill}
             canAsk={status?.canAsk ?? false}
+            provider={provider}
             unavailableMessage={askUnavailable}
             onFocusSource={handleFocusSource}
             onSourcesChange={setCitedPaths}

@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",
+    "@google/genai": "^2.26.0",
     "graphology": "^0.25.4",
     "graphology-metrics": "^2.3.1",
     "ignore": "^5.3.1",

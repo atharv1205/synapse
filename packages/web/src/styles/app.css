@@ -71,6 +71,17 @@
   font-variant-numeric: tabular-nums;
 }
 
+.app .toolbar-link {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.app .toolbar-link:hover {
+  color: var(--cyan);
+}
+
 .app .control-label {
   font-size: 12.5px;
   color: var(--text-dim);
@@ -179,6 +190,29 @@
   font-size: 12.5px;
   font-weight: 600;
   color: var(--text-dim);
+}
+
+/* --- labels on the 3D map ----------------------------------------------- */
+
+.app .node-label {
+  display: block;
+  padding: 2px 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  color: var(--text);
+  background: color-mix(in srgb, var(--field) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--edge-strong) 70%, transparent);
+  border-radius: 4px;
+  transform: translateY(-50%);
+  user-select: none;
+}
+
+.app .node-label.is-selected {
+  color: var(--field);
+  background: var(--text);
+  border-color: var(--text);
 }
 
 /* --- metrics ------------------------------------------------------------- */

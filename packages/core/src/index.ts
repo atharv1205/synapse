@@ -36,6 +36,7 @@ export {
   normalizeVector,
   DEFAULT_TOP_K,
   INDEX_FILENAME,
+  indexFiles,
   VECTORS_FILENAME,
   type Chunk,
   type StoredChunk,
@@ -56,6 +57,7 @@ export {
   createChatProvider,
   createEmbeddingProvider,
   defaultModelFor,
+  defaultEmbedModelFor,
   type ProviderOptions,
   type ProviderPair,
 } from "./llm/provider.js";
@@ -65,6 +67,14 @@ export {
   API_KEY_ENV,
   type AnthropicConfig,
 } from "./llm/anthropic.js";
+export {
+  GeminiClient,
+  DEFAULT_GEMINI_MODEL,
+  DEFAULT_GEMINI_EMBED_MODEL,
+  GEMINI_KEY_ENV,
+  type GeminiConfig,
+  type GeminiTransport,
+} from "./llm/gemini.js";
 export {
   EmbeddingsUnsupportedError,
   type LlmProvider,

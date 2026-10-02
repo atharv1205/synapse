@@ -1,9 +1,30 @@
 import type { RepoGraph, Source } from "@synapse/core";
 
+export type ProviderName = "ollama" | "gemini" | "anthropic";
+
+/** In the order the switch shows them. */
+export const PROVIDERS: ProviderName[] = ["ollama", "gemini", "anthropic"];
+
+export const PROVIDER_LABELS: Record<ProviderName, string> = {
+  ollama: "Local",
+  gemini: "Gemini",
+  anthropic: "Claude",
+};
+
+export interface ProviderAvailability {
+  available: boolean;
+  /** The chat model it would use. */
+  model: string;
+  message?: string;
+}
+
 /** Mirrors the server's StatusResponse. */
 export interface Status {
   root: string;
   ollama: { baseUrl: string; reachable: boolean };
+  provider: { chat: string; embed: string; note?: string };
+  defaultProvider: ProviderName;
+  providers: Record<ProviderName, ProviderAvailability>;
   chatModel: { name: string; available: boolean; message?: string };
   embedModel: { name: string; available: boolean; message?: string };
   graph: { exists: boolean; fileCount?: number; generatedAt?: string };
@@ -78,24 +99,39 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+export interface AnalyzeRequest {
+  /** A GitHub https URL, or a local folder path. */
+  target: string;
+  /** For a private repository. Sent once, for the clone, and never stored by the server. */
+  token?: string;
+  provider?: ProviderName;
+  reanalyze?: boolean;
+}
+
+export interface AnalyzeResponse {
+  /** "ready" when the repository was analysed before and opens from its cache. */
+  status: "ready" | "analysing";
+  root: string;
+}
+
+const json = (body: unknown): RequestInit => ({
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify(body),
+});
+
 export const api = {
-  status: () => request<Status>("/api/status"),
+  status: (provider?: ProviderName) =>
+    request<Status>(provider ? `/api/status?provider=${provider}` : "/api/status"),
 
   graph: () => request<RepoGraph>("/api/graph"),
 
-  ask: (question: string, topK?: number) =>
-    request<AskAnswer>("/api/ask", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ question, topK }),
-    }),
+  ask: (question: string, provider?: ProviderName, topK?: number) =>
+    request<AskAnswer>("/api/ask", json({ question, provider, topK })),
 
-  buildIndex: () =>
-    request<IndexReport>("/api/index", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{}",
-    }),
+  buildIndex: (provider?: ProviderName) => request<IndexReport>("/api/index", json({ provider })),
+
+  analyze: (body: AnalyzeRequest) => request<AnalyzeResponse>("/api/analyze", json(body)),
 };
 
 /** The last path segment of the served root, which is what a person calls the repo. */

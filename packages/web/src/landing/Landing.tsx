@@ -3,6 +3,7 @@ import { api, repoNameOf, type Status } from "../api";
 import { GitHubIcon } from "../components/icons";
 import { Link } from "../router";
 import { SITE } from "../site";
+import { AnalyseForm } from "./AnalyseForm";
 import { CommandBlock } from "./CommandBlock";
 import "./landing.css";
 
@@ -13,7 +14,16 @@ const HeroGraph = lazy(() => import("./HeroGraph"));
 type Served =
   | { state: "checking" }
   | { state: "absent" }
-  | { state: "present"; name: string; fileCount?: number; analysing: boolean };
+  | {
+      state: "present";
+      name: string;
+      fileCount?: number;
+      analysing: boolean;
+      /** Whether anything has been analysed yet in this session. */
+      hasGraph: boolean;
+      providers: Status["providers"];
+      defaultProvider: Status["defaultProvider"];
+    };
 
 /**
  * The same build is served by `synapse serve` and can be hosted statically. Asking
@@ -33,7 +43,10 @@ function useServed(): Served {
           state: "present",
           name: repoNameOf(status.root),
           fileCount: status.graph.fileCount,
-          analysing: !status.graph.exists,
+          analysing: status.analysis.running,
+          hasGraph: status.graph.exists,
+          providers: status.providers,
+          defaultProvider: status.defaultProvider,
         });
       })
       .catch(() => live && setServed({ state: "absent" }));
@@ -115,28 +128,33 @@ export function Landing() {
               or ask questions whose answers cite their sources. It runs on your machine.
             </p>
 
-            <div className="hero-actions">
-              {served.state === "present" ? (
-                <Link href="/graph" className="button button-primary">
-                  {openLabel}
-                </Link>
-              ) : (
+            {served.state === "present" ? (
+              <>
+                <AnalyseForm providers={served.providers} defaultProvider={served.defaultProvider} />
+                <p className="hero-status" aria-live="polite">
+                  {served.analysing ? (
+                    <>
+                      Analysing {served.name}. <Link href="/graph">Watch progress</Link>
+                    </>
+                  ) : served.hasGraph ? (
+                    <>
+                      Serving {served.name}, {served.fileCount?.toLocaleString() ?? "?"} files.{" "}
+                      <Link href="/graph">Open it</Link>
+                    </>
+                  ) : null}
+                </p>
+              </>
+            ) : (
+              <div className="hero-actions">
                 <a href="#usage" className="button button-primary">
                   Get started
                 </a>
-              )}
-              <a href={SITE.repositoryUrl} className="button">
-                <GitHubIcon />
-                View on GitHub
-              </a>
-            </div>
-
-            <p className="hero-status" aria-live="polite">
-              {served.state === "present" &&
-                (served.analysing
-                  ? `Serving ${served.name}. The analysis is still running.`
-                  : `Serving ${served.name}, ${served.fileCount?.toLocaleString() ?? "?"} files analysed.`)}
-            </p>
+                <a href={SITE.repositoryUrl} className="button">
+                  <GitHubIcon />
+                  View on GitHub
+                </a>
+              </div>
+            )}
           </div>
 
           <Suspense fallback={<div className="hero-figure hero-figure-pending" />}>
@@ -189,10 +207,10 @@ export function Landing() {
               <dt>Local first</dt>
               <dd>
                 By default, summaries and answers come from Ollama on your machine and no code
-                leaves it. Add <code>--provider anthropic</code> to use Claude instead, which
-                sends each prompt, including excerpts of your source, to Anthropic’s API.
-                Embeddings stay local either way, and the key is read only from{" "}
-                <code>ANTHROPIC_API_KEY</code>.
+                leaves it. Switch to Gemini or Claude in the page or with{" "}
+                <code>--provider</code>, which sends each prompt, including excerpts of your
+                source, to that provider’s API. Keys are read only from the environment, never
+                from the page.
               </dd>
             </div>
             <div>
@@ -232,7 +250,7 @@ export function Landing() {
               </p>
               <CommandBlock
                 label="Model commands"
-                commands={["ollama pull qwen2.5:14b-instruct", "ollama pull nomic-embed-text"]}
+                commands={["ollama pull qwen2.5-coder:14b", "ollama pull nomic-embed-text"]}
               />
             </li>
             <li>
@@ -251,9 +269,9 @@ export function Landing() {
             <li>
               <h3>Ask questions</h3>
               <p>
-                From the explorer or the terminal. To answer with Claude, export{" "}
-                <code>ANTHROPIC_API_KEY</code> and add <code>--provider anthropic</code>; prompts
-                then go to Anthropic’s API.
+                From the explorer or the terminal. To answer with Gemini, export{" "}
+                <code>GEMINI_API_KEY</code> and add <code>--provider gemini</code>; prompts then go
+                to Google’s API.
               </p>
               <CommandBlock
                 label="Ask command"

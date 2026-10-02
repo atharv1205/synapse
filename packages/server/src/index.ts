@@ -1,18 +1,31 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import path from "node:path";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
+  analyze,
   ask,
   buildIndex,
   loadIndex,
-  DEFAULT_EMBED_MODEL,
+  writeGraph,
+  isRepoUrl,
+  redactUrl,
+  AnthropicClient,
+  GeminiClient,
+  OllamaClient,
   DEFAULT_TOP_K,
+  API_KEY_ENV,
+  GEMINI_KEY_ENV,
   createProviders,
   defaultModelFor,
+  defaultEmbedModelFor,
+  type AnalyzeOptions,
   type ProviderName,
   type RepoGraph,
 } from "@synapse/core";
+
+const PROVIDERS: ProviderName[] = ["ollama", "gemini", "anthropic"];
 
 export interface ServerConfig {
   /** Repo root being served. */
@@ -32,11 +45,34 @@ export interface ServerConfig {
   ollamaUrl?: string;
   logger?: boolean;
   /**
-   * Reports the state of an analysis running in the background. The server starts
-   * listening before the first analysis finishes so the UI can show progress, so it
-   * needs a way to say "there is no graph yet, but one is on its way".
+   * An analysis to start as soon as the server exists, for `serve` on a target with no
+   * graph yet. The server listens before it finishes so the UI can show progress.
    */
-  getAnalysis?: () => AnalysisState;
+  initialAnalysis?: AnalysisJob;
+  /**
+   * Where repositories analysed from the web page keep their artefacts, one folder per
+   * repository, so opening the same one again is instant. Defaults to
+   * ~/.synapse-map/repos.
+   */
+  reposDir?: string;
+  /** Receives every progress line, for printing to the terminal. */
+  onProgress?: (line: string) => void;
+  /** Replaces core's analyze, for tests. */
+  analyzer?: (target: string, options: AnalyzeOptions) => Promise<RepoGraph>;
+}
+
+/** One analysis: what to read, where its artefacts go, and how to summarise it. */
+export interface AnalysisJob {
+  /** A path, or the URL to clone, credential included if the user put one in it. */
+  target: string;
+  /** What to show for it: the path, or the URL with any credential removed. */
+  root: string;
+  cacheDir: string;
+  /** Used for the clone only; never stored, logged or returned. */
+  token?: string;
+  provider?: ProviderName;
+  skipSummarize?: boolean;
+  summarizeTop?: number;
 }
 
 export interface AnalysisState {
@@ -45,6 +81,14 @@ export interface AnalysisState {
   message?: string;
   /** Set when the analysis failed; the UI shows this instead of spinning forever. */
   error?: string;
+}
+
+/** Whether one provider can be used right now, and if not, what would fix it. */
+export interface ProviderAvailability {
+  available: boolean;
+  /** The chat model it would use. */
+  model: string;
+  message?: string;
 }
 
 /** What the UI needs to decide between rendering, a loading state, or remediation. */
@@ -57,10 +101,14 @@ export interface StatusResponse {
   analysis: AnalysisState;
   /**
    * Which backend answers, and the note explaining why embeddings may come from a
-   * different one. The UI shows this so a user on --provider anthropic understands
-   * why Ollama still has to be running.
+   * different one. The UI shows this so a user on Claude understands why Ollama still
+   * has to be running.
    */
   provider: { chat: string; embed: string; note?: string };
+  /** The provider `serve` was started with, which the page selects by default. */
+  defaultProvider: ProviderName;
+  /** Every provider and whether it can be used now, for the page's switch. */
+  providers: Record<ProviderName, ProviderAvailability>;
   index: { exists: boolean; chunks?: number; dim?: number };
   /** True when /api/ask can be expected to work right now. */
   canAsk: boolean;
@@ -70,10 +118,39 @@ interface AskBody {
   question?: unknown;
   topK?: unknown;
   globalRank?: unknown;
+  provider?: unknown;
 }
 
 interface IndexBody {
   embedModel?: unknown;
+  provider?: unknown;
+}
+
+interface AnalyzeBody {
+  target?: unknown;
+  token?: unknown;
+  provider?: unknown;
+  /** Analyse again even if this repository already has a graph. */
+  reanalyze?: unknown;
+}
+
+/**
+ * Where a repository analysed from the web page keeps its artefacts:
+ * <reposDir>/<host>/<owner>/<repo>. Every segment is reduced to safe characters and `..`
+ * cannot survive, so a crafted URL cannot write outside reposDir.
+ */
+export function repoCacheDir(reposDir: string, url: string): string {
+  const parsed = new URL(url);
+  const segments = [parsed.hostname, ...parsed.pathname.split("/")]
+    .map((segment) => segment.replace(/\.git$/, "").replace(/[^A-Za-z0-9._-]/g, "_"))
+    .filter((segment) => segment !== "" && !/^\.+$/.test(segment));
+  return path.join(reposDir, ...segments);
+}
+
+/** The provider named in a request, `undefined` if none was given, or `null` if invalid. */
+function providerIn(value: unknown): ProviderName | undefined | null {
+  if (value === undefined || value === null || value === "") return undefined;
+  return PROVIDERS.includes(value as ProviderName) ? (value as ProviderName) : null;
 }
 
 /**
@@ -153,58 +230,121 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
     return payload;
   });
 
-  const model = config.model ?? defaultModelFor(config.provider ?? "ollama");
-  const embedModel = config.embedModel ?? DEFAULT_EMBED_MODEL;
-  const graphFile = path.join(config.cacheDir, "graph.json");
+  const defaultProvider: ProviderName = config.provider ?? "ollama";
+  const reposDir = config.reposDir ?? path.join(homedir(), ".synapse-map", "repos");
+  const analyzer = config.analyzer ?? analyze;
+
+  /**
+   * The models a provider uses. `--model` and `--embed-model` were given for the
+   * provider `serve` started with; any other provider the page switches to gets its own
+   * defaults rather than, say, an Ollama model name sent to Gemini.
+   */
+  const modelsFor = (provider: ProviderName) => ({
+    model: (provider === defaultProvider ? config.model : undefined) ?? defaultModelFor(provider),
+    embedModel: (provider === defaultProvider ? config.embedModel : undefined) ?? defaultEmbedModelFor(provider),
+  });
+
+  // The repository being served. Mutable: analysing another one from the page switches
+  // the whole explorer over to it.
+  const workspace = { root: config.root, cacheDir: config.cacheDir };
+  let analysis: AnalysisState = { running: false };
 
   const readGraph = async (): Promise<RepoGraph | undefined> => {
     try {
-      return JSON.parse(await readFile(graphFile, "utf8")) as RepoGraph;
+      return JSON.parse(await readFile(path.join(workspace.cacheDir, "graph.json"), "utf8")) as RepoGraph;
     } catch {
       return undefined;
     }
   };
 
-  app.get("/api/status", async (): Promise<StatusResponse> => {
-    const providers = createProviders({
-      provider: config.provider,
-      model,
-      embedModel,
-      baseUrl: config.ollamaUrl,
-    });
+  function startAnalysis(job: AnalysisJob): void {
+    workspace.root = job.root;
+    workspace.cacheDir = job.cacheDir;
+    analysis = { running: true };
+    const provider = job.provider ?? defaultProvider;
+    const report = (line: string) => {
+      analysis.message = line;
+      config.onProgress?.(line);
+    };
 
-    // Chat may be Anthropic while embeddings are always Ollama, so each half is vetted
-    // against its own backend and reported separately.
-    const [chat, embed] = await Promise.all([
+    void (async () => {
+      try {
+        const graph = await analyzer(job.target, {
+          cacheDir: job.cacheDir,
+          token: job.token,
+          provider,
+          model: modelsFor(provider).model,
+          ollamaUrl: config.ollamaUrl,
+          skipSummarize: job.skipSummarize,
+          summarizeTop: job.summarizeTop,
+          onProgress: report,
+        });
+        await writeGraph(graph, job.cacheDir);
+        config.onProgress?.(`Wrote ${path.join(job.cacheDir, "graph.json")}`);
+        analysis = { running: false };
+      } catch (error) {
+        analysis = { running: false, error: error instanceof Error ? error.message : String(error) };
+        config.onProgress?.(`Analysis failed: ${analysis.error}`);
+      }
+    })();
+  }
+
+  if (config.initialAnalysis) startAnalysis(config.initialAnalysis);
+
+  /**
+   * Whether each provider is usable now. Ollama is asked directly, which is a local call;
+   * the cloud providers are judged by whether their key is set, because asking their
+   * APIs on every status poll would cost a round trip each time.
+   */
+  async function availability(): Promise<Record<ProviderName, ProviderAvailability>> {
+    const local = modelsFor("ollama").model;
+    const ollama = await new OllamaClient({ model: local, baseUrl: config.ollamaUrl }).preflight(local);
+    const keyed = (has: boolean, env: string, provider: ProviderName): ProviderAvailability => ({
+      available: has,
+      model: modelsFor(provider).model,
+      message: has ? undefined : `Set ${env} in the environment \`synapse serve\` runs in, then restart it.`,
+    });
+    return {
+      ollama: { available: ollama.ok, model: local, message: ollama.ok ? undefined : ollama.message },
+      gemini: keyed(GeminiClient.hasApiKey(), GEMINI_KEY_ENV, "gemini"),
+      anthropic: keyed(AnthropicClient.hasApiKey(), API_KEY_ENV, "anthropic"),
+    };
+  }
+
+  app.get("/api/status", async (request, reply): Promise<StatusResponse | undefined> => {
+    const requested = providerIn((request.query as { provider?: unknown }).provider);
+    if (requested === null) {
+      reply.code(400).send({ error: "bad-request", message: `\`provider\` must be one of ${PROVIDERS.join(", ")}.` });
+      return undefined;
+    }
+    const provider = requested ?? defaultProvider;
+    const { model, embedModel } = modelsFor(provider);
+    const providers = createProviders({ provider, model, embedModel, baseUrl: config.ollamaUrl });
+
+    // Chat and embeddings can come from different backends (Claude answers, Ollama
+    // embeds), so each half is vetted against its own backend and reported separately.
+    const [chat, embed, list] = await Promise.all([
       providers.chat.preflight(model),
       providers.embed.preflight(embedModel),
+      availability(),
     ]);
 
-    // Ollama's reachability is whatever the embedding half saw — that is the half that
-    // always talks to it, whichever provider is answering questions.
-    const reachable = !(!embed.ok && /Could not reach Ollama/.test(embed.message));
-
+    const reachable = !(!list.ollama.available && /Could not reach Ollama/.test(list.ollama.message ?? ""));
     const graph = await readGraph();
-    const store = await loadIndex(config.cacheDir, embedModel);
+    const store = await loadIndex(workspace.cacheDir, embedModel);
 
     return {
-      root: config.root,
-      ollama: { baseUrl: providers.embed.endpoint, reachable },
-      provider: {
-        chat: providers.chat.name,
-        embed: providers.embed.name,
-        note: providers.embedNote,
-      },
+      root: workspace.root,
+      ollama: { baseUrl: config.ollamaUrl ?? "http://localhost:11434", reachable },
+      provider: { chat: providers.chat.name, embed: providers.embed.name, note: providers.embedNote },
+      defaultProvider,
+      providers: list,
       chatModel: { name: model, available: chat.ok, message: chat.ok ? undefined : chat.message },
-      embedModel: {
-        name: embedModel,
-        available: embed.ok,
-        message: embed.ok ? undefined : embed.message,
-      },
+      embedModel: { name: embedModel, available: embed.ok, message: embed.ok ? undefined : embed.message },
       graph: graph
         ? { exists: true, fileCount: graph.stats.fileCount, generatedAt: graph.generatedAt }
         : { exists: false },
-      analysis: config.getAnalysis?.() ?? { running: false },
+      analysis,
       index: store.size > 0 ? { exists: true, chunks: store.size, dim: store.dim } : { exists: false },
       canAsk: chat.ok && embed.ok && graph !== undefined,
     };
@@ -216,11 +356,69 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
       return reply.code(404).send({
         error: "no-graph",
         message:
-          `No graph found at ${graphFile}.\n` +
+          `No graph found at ${path.join(workspace.cacheDir, "graph.json")}.\n` +
           "  Run `synapse analyze <path>` first, or restart `synapse serve` to build one.",
       });
     }
     return graph;
+  });
+
+  app.post("/api/analyze", async (request, reply) => {
+    const body = (request.body ?? {}) as AnalyzeBody;
+    const target = typeof body.target === "string" ? body.target.trim() : "";
+    if (target === "") {
+      return reply.code(400).send({ error: "bad-request", message: "Paste a GitHub URL or a local folder path." });
+    }
+
+    const provider = providerIn(body.provider);
+    if (provider === null) {
+      return reply.code(400).send({ error: "bad-request", message: `\`provider\` must be one of ${PROVIDERS.join(", ")}.` });
+    }
+    if (body.token !== undefined && typeof body.token !== "string") {
+      return reply.code(400).send({ error: "bad-request", message: "`token` must be a string." });
+    }
+    if (analysis.running) {
+      return reply.code(409).send({ error: "busy", message: "Another analysis is still running. Wait for it to finish." });
+    }
+
+    let job: AnalysisJob;
+    if (isRepoUrl(target)) {
+      // https only: the token reaches git through a credential helper that answers
+      // https; ssh and git@ forms would use the machine's own keys instead.
+      if (!/^https:\/\//i.test(target)) {
+        return reply.code(400).send({ error: "bad-request", message: "Use the repository's https:// URL." });
+      }
+      let cacheDir: string;
+      try {
+        cacheDir = repoCacheDir(reposDir, target);
+      } catch {
+        return reply.code(400).send({ error: "bad-request", message: "That URL could not be read." });
+      }
+      job = { target, root: redactUrl(target), cacheDir };
+    } else {
+      const local = path.resolve(target.replace(/^~(?=$|\/)/, homedir()));
+      const info = await stat(local).catch(() => undefined);
+      if (!info?.isDirectory()) {
+        return reply.code(400).send({ error: "bad-request", message: `No folder at ${local}.` });
+      }
+      job = { target: local, root: local, cacheDir: path.join(local, ".synapse") };
+    }
+
+    job.provider = provider ?? defaultProvider;
+    const token = typeof body.token === "string" ? body.token.trim() : "";
+    if (token !== "") job.token = token;
+
+    // A repository analysed before opens straight from its cache.
+    const cached = await stat(path.join(job.cacheDir, "graph.json")).catch(() => undefined);
+    if (cached && body.reanalyze !== true) {
+      workspace.root = job.root;
+      workspace.cacheDir = job.cacheDir;
+      analysis = { running: false };
+      return { status: "ready", root: job.root };
+    }
+
+    startAnalysis(job);
+    return reply.code(202).send({ status: "analysing", root: job.root });
   });
 
   app.post("/api/ask", async (request, reply) => {
@@ -228,6 +426,10 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
 
     if (typeof body.question !== "string" || body.question.trim() === "") {
       return reply.code(400).send({ error: "bad-request", message: "`question` must be a non-empty string." });
+    }
+    const requested = providerIn(body.provider);
+    if (requested === null) {
+      return reply.code(400).send({ error: "bad-request", message: `\`provider\` must be one of ${PROVIDERS.join(", ")}.` });
     }
 
     const graph = await readGraph();
@@ -238,13 +440,13 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
       });
     }
 
+    const provider = requested ?? defaultProvider;
     const result = await ask(body.question, {
-      root: config.root,
+      root: workspace.root,
       graph,
-      cacheDir: config.cacheDir,
-      provider: config.provider,
-      model,
-      embedModel,
+      cacheDir: workspace.cacheDir,
+      provider,
+      ...modelsFor(provider),
       baseUrl: config.ollamaUrl,
       topK: typeof body.topK === "number" ? body.topK : DEFAULT_TOP_K,
       globalRank: body.globalRank === true,
@@ -261,6 +463,10 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
 
   app.post("/api/index", async (request, reply) => {
     const body = (request.body ?? {}) as IndexBody;
+    const requested = providerIn(body.provider);
+    if (requested === null) {
+      return reply.code(400).send({ error: "bad-request", message: `\`provider\` must be one of ${PROVIDERS.join(", ")}.` });
+    }
 
     const graph = await readGraph();
     if (!graph) {
@@ -270,10 +476,13 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
       });
     }
 
+    const provider = requested ?? defaultProvider;
+    const models = modelsFor(provider);
     const report = await buildIndex(graph, {
-      root: config.root,
-      cacheDir: config.cacheDir,
-      embedModel: typeof body.embedModel === "string" ? body.embedModel : embedModel,
+      root: workspace.root,
+      cacheDir: workspace.cacheDir,
+      provider,
+      embedModel: typeof body.embedModel === "string" ? body.embedModel : models.embedModel,
       baseUrl: config.ollamaUrl,
     });
 

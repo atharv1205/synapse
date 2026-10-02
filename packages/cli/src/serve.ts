@@ -2,8 +2,8 @@ import { access } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { analyze, writeGraph, type ProviderName } from "@synapse/core";
-import { createServer, isLoopback, type AnalysisState } from "@synapse/server";
+import type { ProviderName } from "@synapse/core";
+import { createServer, isLoopback } from "@synapse/server";
 
 export interface ServeOptions {
   /** What is being served: a local path, or a repository URL with any credential removed. */
@@ -77,9 +77,6 @@ export async function serve(options: ServeOptions): Promise<void> {
     hasGraph = false;
   }
 
-  // Mutable so /api/status can read it on every request.
-  const analysis: AnalysisState = { running: !hasGraph };
-
   const webDist = await findWebDist();
   if (!webDist) {
     console.error(
@@ -97,8 +94,26 @@ export async function serve(options: ServeOptions): Promise<void> {
     model: options.model,
     embedModel: options.embedModel,
     ollamaUrl: options.ollamaUrl,
-    getAnalysis: () => analysis,
+    // The first analysis starts as the server is created and runs while it listens.
+    // Summarising takes minutes on a local model; blocking the listen until it finished
+    // meant the browser opened on a dead port. Now /api/status reports progress at once.
+    initialAnalysis: hasGraph
+      ? undefined
+      : {
+          target: options.cloneTarget ?? options.root,
+          root: options.root,
+          cacheDir: options.cacheDir,
+          token: options.token,
+          provider: options.provider,
+          skipSummarize: options.skipSummarize,
+          summarizeTop: options.summarizeTop,
+        },
+    onProgress: (line) => console.error(`  ${line}`),
   });
+
+  if (!hasGraph) {
+    console.error(`No graph at ${graphFile} — analysing ${options.root} in the background …`);
+  }
 
   await app.listen({ port: options.port, host: options.host });
 
@@ -111,7 +126,7 @@ export async function serve(options: ServeOptions): Promise<void> {
     console.log(
       `\nWarning: listening on ${options.host}, so anyone who can reach this machine can use\n` +
         "  the API. It has no authentication: they can read the graph and its summaries,\n" +
-        "  and each question they ask runs the model, which costs money on --provider anthropic.",
+        "  and each question they ask runs the model, which costs money on a cloud provider.",
     );
   }
   console.log("\nPress Ctrl+C to stop.");
@@ -119,40 +134,6 @@ export async function serve(options: ServeOptions): Promise<void> {
   // Straight into the explorer: someone who ran `serve` came to use the tool, and the
   // landing page at / is one click away from its wordmark.
   if (webDist && !options.noOpen) openBrowser(`${url}/graph`);
-
-  // The first analysis runs *after* the server is listening, not before it. Summarising
-  // a repo takes minutes on a local model, and blocking the listen until it finished
-  // meant the browser opened on a dead port and the UI's "analysing" state could never
-  // be reached. Now /api/status answers immediately and reports progress.
-  if (!hasGraph) {
-    console.error(`No graph at ${graphFile} — analysing ${options.root} in the background …`);
-
-    void (async () => {
-      try {
-        const graph = await analyze(options.cloneTarget ?? options.root, {
-          cacheDir: options.cacheDir,
-          token: options.token,
-          provider: options.provider,
-          model: options.model,
-          ollamaUrl: options.ollamaUrl,
-          skipSummarize: options.skipSummarize,
-          summarizeTop: options.summarizeTop,
-          onProgress: (message) => {
-            analysis.message = message;
-            console.error(`  ${message}`);
-          },
-        });
-        await writeGraph(graph, options.cacheDir);
-        console.error(`Wrote ${graphFile}`);
-      } catch (error) {
-        analysis.error = error instanceof Error ? error.message : String(error);
-        console.error(`\nAnalysis failed: ${analysis.error}`);
-      } finally {
-        analysis.running = false;
-        analysis.message = undefined;
-      }
-    })();
-  }
 
   // Shut down cleanly so the port is released rather than left in TIME_WAIT on restart.
   for (const signal of ["SIGINT", "SIGTERM"] as const) {

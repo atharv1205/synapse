@@ -7,21 +7,23 @@ import {
   analyze,
   ask,
   buildIndex,
-  isRepoUrl,
-  redactUrl,
   writeGraph,
   DEFAULT_EMBED_MODEL,
   DEFAULT_MODEL,
   DEFAULT_SUMMARIZE_TOP,
   DEFAULT_TOP_K,
   DEFAULT_ANTHROPIC_MODEL,
+  DEFAULT_GEMINI_MODEL,
+  DEFAULT_GEMINI_EMBED_MODEL,
   defaultModelFor,
   functionIndex,
+  indexFiles,
   functionsOf,
   type ProviderName,
   type RepoGraph,
 } from "@synapse/core";
 import { serve } from "./serve.js";
+import { resolveOutDir, serveTarget } from "./target.js";
 
 const USAGE = `synapse — map a codebase's structure, importance and meaning
 
@@ -62,14 +64,16 @@ serve:
 
 Shared:
   --out <dir>            Where .synapse artefacts live (default: <path>/.synapse)
-  --provider <name>      ollama | anthropic  (default: ollama)
-                         Chooses what summarises and answers. Embeddings are always
-                         Ollama — the Anthropic API has no embeddings endpoint — so
-                         Ollama must be running for \`ask\` either way.
-                         anthropic reads ANTHROPIC_API_KEY from the environment only.
+  --provider <name>      ollama | gemini | anthropic  (default: ollama)
+                         Chooses what summarises and answers.
+                         gemini embeds with Gemini too, so it needs no Ollama; it
+                         reads GEMINI_API_KEY from the environment only.
+                         anthropic has no embeddings endpoint, so \`ask\` still embeds
+                         with Ollama; it reads ANTHROPIC_API_KEY from the environment only.
   --model <name>         Chat model (default: ${DEFAULT_MODEL},
-                         or ${DEFAULT_ANTHROPIC_MODEL} with --provider anthropic)
-  --embed-model <name>   Embedding model (default: ${DEFAULT_EMBED_MODEL})
+                         ${DEFAULT_GEMINI_MODEL} with gemini, ${DEFAULT_ANTHROPIC_MODEL} with anthropic)
+  --embed-model <name>   Embedding model (default: ${DEFAULT_EMBED_MODEL},
+                         or ${DEFAULT_GEMINI_EMBED_MODEL} with --provider gemini)
   --ollama-url <url>     Ollama base URL (default: http://localhost:11434)
   -h, --help             Show this message
   -v, --version          Print the installed version
@@ -102,22 +106,12 @@ function printRemediation(message: string): void {
   console.error(message.split("\n").map((line) => `  ${line}`).join("\n"));
 }
 
-/**
- * Where .synapse artefacts live. A URL has no local path to hang them off, so those
- * land in the current directory rather than a folder named after the URL.
- */
-function resolveOutDir(target: string, out: unknown): string {
-  if (typeof out === "string") return path.resolve(out);
-  if (isRepoUrl(target)) return path.join(process.cwd(), ".synapse");
-  return path.join(path.resolve(target), ".synapse");
-}
-
 /** Validates --provider and reports the allowed values rather than failing obscurely. */
 function providerFrom(values: Record<string, unknown>): ProviderName {
   const raw = values.provider;
   if (raw === undefined) return "ollama";
-  if (raw === "ollama" || raw === "anthropic") return raw;
-  console.error(`Unknown --provider "${String(raw)}". Use "ollama" or "anthropic".`);
+  if (raw === "ollama" || raw === "anthropic" || raw === "gemini") return raw;
+  console.error(`Unknown --provider "${String(raw)}". Use "ollama", "gemini" or "anthropic".`);
   process.exit(1);
 }
 
@@ -284,7 +278,7 @@ async function runIndex(values: Record<string, unknown>): Promise<void> {
     `\nIndexed ${report.total} chunks — ${report.embedded} embedded, ${report.reused} reused.`,
   );
   console.log(`Model: ${report.embedModel} (${report.dim} dimensions)`);
-  console.log(`Wrote ${path.join(outDir, "embeddings.json")}`);
+  console.log(`Wrote ${path.join(outDir, indexFiles(report.embedModel).manifest)}`);
 }
 
 async function runAsk(question: string, values: Record<string, unknown>): Promise<void> {
@@ -395,18 +389,10 @@ async function main(): Promise<void> {
 
     case "serve": {
       if (argument) values.path = values.path ?? argument;
-      const target = typeof values.path === "string" ? values.path : ".";
-      // A URL is cloned by the analysis itself. Resolving it as a path first turned
-      // `serve https://github.com/org/repo` into a directory that does not exist. It
-      // is redacted here because serve prints it and /api/status returns it; the
-      // clone step still receives the credential through --token or GITHUB_TOKEN.
-      const remote = isRepoUrl(target);
-      const root = remote ? redactUrl(target) : path.resolve(target);
+      const target = serveTarget(typeof values.path === "string" ? values.path : ".", values.out);
       const llm = llmOptions(values);
       return serve({
-        root,
-        cloneTarget: remote ? target : undefined,
-        cacheDir: resolveOutDir(target, values.out),
+        ...target,
         port: values.port ? Number(values.port) : 4317,
         host: typeof values.host === "string" ? values.host : "127.0.0.1",
         token: tokenFrom(values),

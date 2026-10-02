@@ -1,5 +1,4 @@
-import { DEFAULT_EMBED_MODEL } from "../llm/ollama.js";
-import { createEmbeddingProvider, type ProviderOptions } from "../llm/provider.js";
+import { createEmbeddingProvider, defaultEmbedModelFor, type ProviderOptions } from "../llm/provider.js";
 import type { Preflight } from "../llm/types.js";
 import type { RepoGraph } from "../types.js";
 import { buildChunks, type Chunk } from "./chunk.js";
@@ -11,6 +10,7 @@ export {
   normalizeVector,
   INDEX_FILENAME,
   VECTORS_FILENAME,
+  indexFiles,
   type VectorStore,
   type SearchHit,
   type SearchOptions,
@@ -77,7 +77,7 @@ export interface IndexReport {
  */
 export async function buildIndex(graph: RepoGraph, options: IndexOptions): Promise<IndexReport> {
   const { cacheDir, root, onProgress = () => {} } = options;
-  const embedModel = options.embedModel ?? DEFAULT_EMBED_MODEL;
+  const embedModel = options.embedModel ?? defaultEmbedModelFor(options.provider);
   const backend: EmbeddingBackend = options.backend ?? createEmbeddingProvider(options);
 
   const base: IndexReport = { ran: false, embedModel, total: 0, embedded: 0, reused: 0, dim: 0 };

@@ -1,6 +1,8 @@
+import type { ProviderAvailability, ProviderName } from "../api";
 import { Link } from "../router";
 import { SITE } from "../site";
 import type { ColorMode } from "./GraphScene";
+import { ProviderSwitch } from "./ProviderSwitch";
 
 export interface ToolbarProps {
   /** The served repository's directory name, from /api/status. */
@@ -16,6 +18,9 @@ export interface ToolbarProps {
   onTopPercentChange(value: number): void;
   onColorModeChange(mode: ColorMode): void;
   onReindex(): void;
+  provider?: ProviderName;
+  providers?: Record<ProviderName, ProviderAvailability>;
+  onProviderChange(provider: ProviderName): void;
 }
 
 /**
@@ -35,6 +40,9 @@ export function Toolbar({
   onTopPercentChange,
   onColorModeChange,
   onReindex,
+  provider,
+  providers,
+  onProviderChange,
 }: ToolbarProps) {
   return (
     <div className="toolbar">
@@ -48,6 +56,9 @@ export function Toolbar({
             {visibleCount.toLocaleString()} of {fileCount.toLocaleString()} files prominent
           </span>
         </div>
+        <Link href="/" className="toolbar-link">
+          Analyse another
+        </Link>
       </div>
 
       {/*
@@ -84,6 +95,18 @@ export function Toolbar({
           <span>low</span>
           <span className="legend-bar" />
           <span>high</span>
+        </div>
+      )}
+
+      {provider && providers && (
+        <div className="toolbar-group">
+          <span className="control-label">Answer with</span>
+          <ProviderSwitch
+            value={provider}
+            providers={providers}
+            onChange={onProviderChange}
+            label="Answer questions with"
+          />
         </div>
       )}
 

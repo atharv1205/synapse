@@ -128,6 +128,109 @@
   font-size: 15px;
 }
 
+/* --- the analyse form ---------------------------------------------------- */
+
+.landing .analyse {
+  display: grid;
+  gap: 14px;
+  max-width: 34em;
+  margin-top: 32px;
+}
+
+.landing .analyse-row {
+  display: flex;
+  gap: 10px;
+}
+
+.landing .analyse input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 14px;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  color: var(--text);
+  background: color-mix(in srgb, black 22%, var(--field));
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--radius-s);
+  transition: border-color 160ms var(--ease-out);
+}
+
+.landing .analyse input::placeholder {
+  color: var(--text-faint);
+}
+
+.landing .analyse input:focus {
+  border-color: var(--cyan);
+  outline: none;
+}
+
+.landing .analyse .button {
+  min-height: 44px;
+  padding-inline: 22px;
+  font-size: 15px;
+}
+
+.landing .analyse .button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.landing .analyse-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.landing .analyse-label {
+  font-size: 13.5px;
+  color: var(--text-dim);
+}
+
+.landing .analyse-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.landing .analyse-token summary {
+  width: fit-content;
+  font-size: 13.5px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.landing .analyse-token summary:hover {
+  color: var(--text);
+}
+
+.landing .analyse-token[open] {
+  display: grid;
+  gap: 8px;
+}
+
+.landing .analyse-token input {
+  margin-top: 4px;
+}
+
+.landing .analyse-error {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  color: #f6dce0;
+  background: var(--error-field);
+  border: 1px solid color-mix(in srgb, var(--error) 35%, transparent);
+  border-radius: var(--radius-s);
+}
+
+.landing .hero-status a {
+  color: var(--cyan);
+}
+
 .landing .hero-status {
   min-height: 1.5em;
   margin: 16px 0 0;
@@ -520,6 +623,10 @@
 @media (max-width: 640px) {
   .landing {
     --gutter: 16px;
+  }
+
+  .landing .analyse-row {
+    flex-direction: column;
   }
 
   .landing .nav-row {

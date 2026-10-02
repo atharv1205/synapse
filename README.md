@@ -1,6 +1,6 @@
-# Synapse
-
-Map a codebase by what it depends on.
+<p align="center">
+  <img src="docs/intro.svg" alt="Synapse: map a codebase by what it depends on" width="100%">
+</p>
 
 Synapse turns a repository into a graph of its files and functions, ranks every file by
 how much the rest of the code relies on it, and lets you explore the result in 3D or ask
@@ -26,6 +26,11 @@ the local 14B model summarising the 50 most important files. `--summarize-top 10
 that sharply, `--skip-summarize` removes it, and the result is cached in `.synapse/` in
 the current directory, so the next `serve` is instant.
 
+Once `serve` is running you can open more repositories from the page itself: paste a
+GitHub URL or a local folder into the box on the start page, pick who summarises, and
+the explorer opens on it when the analysis finishes. Repositories opened that way are
+cached in `~/.synapse-map/repos/`, so reopening one is instant.
+
 The same pipeline as separate steps, on a local project:
 
 ```bash
@@ -47,15 +52,17 @@ works.
 - **Ollama**, for summaries and questions. Pull the two default models once:
 
   ```bash
-  ollama pull qwen2.5:14b-instruct   # summaries and answers
+  ollama pull qwen2.5-coder:14b      # summaries and answers
   ollama pull nomic-embed-text       # embeddings for questions
   ```
 
-  Without Ollama you still get the full graph and rankings: the analysis reports how to
+  Any chat model you already have works instead: add `--model qwen2.5:14b-instruct`, for
+  example. Without Ollama you still get the full graph and rankings: the analysis reports how to
   fix it and carries on without summaries, and the explorer disables only questions.
-- **Or `ANTHROPIC_API_KEY`**, to summarise and answer with Claude instead; see
-  [Providers](#providers). Ollama is still needed for `index` and `ask`, because
-  embeddings always stay local.
+- **Or `GEMINI_API_KEY`**, to summarise, answer and embed with Gemini instead, with no
+  Ollama needed at all; see [Providers](#providers).
+- **Or `ANTHROPIC_API_KEY`**, to summarise and answer with Claude. Ollama is still
+  needed for `index` and `ask`, because Anthropic has no embeddings endpoint.
 - **A C++ toolchain only on uncommon platforms.** tree-sitter ships prebuilt binaries for
   macOS (arm64 and x64), Linux x64 and Windows x64. Anywhere else, such as Linux on ARM,
   npm compiles it on install, which needs Python, make and a C++ compiler.
@@ -100,7 +107,7 @@ serve:
 Shared:
   --out <dir>            Where .synapse artefacts live (default: <path>/.synapse)
   --provider <name>      ollama | anthropic  (default: ollama)
-  --model <name>         Chat model (default: qwen2.5:14b-instruct,
+  --model <name>         Chat model (default: qwen2.5-coder:14b,
                          or claude-opus-5 with --provider anthropic)
   --embed-model <name>   Embedding model (default: nomic-embed-text)
   --ollama-url <url>     Ollama base URL (default: http://localhost:11434)
@@ -114,34 +121,47 @@ directory you ran the command from.
 
 ## Providers
 
-`--provider anthropic` makes Claude write the summaries and answer questions, on
-`analyze`, `ask` and `serve`. The default is `ollama`, and nothing leaves your machine on
-that path. With `anthropic`, each prompt goes to Anthropic's API, and summarisation
-prompts include up to the first 6,000 characters of each summarised file.
+Three backends can write summaries and answer questions, chosen with `--provider` on
+`analyze`, `ask` and `serve`, or with the Local / Gemini / Claude switch in the page:
+
+| Provider | Chat model | Embeddings | Key |
+| --- | --- | --- | --- |
+| `ollama` (default) | `qwen2.5-coder:14b` | `nomic-embed-text`, local | none |
+| `gemini` | `gemini-3.8-flash` | `gemini-embedding-001`, so no Ollama needed | `GEMINI_API_KEY` |
+| `anthropic` | `claude-opus-5` | `nomic-embed-text` via Ollama | `ANTHROPIC_API_KEY` |
+
+The default is `ollama`, and nothing leaves your machine on that path. With `gemini` or
+`anthropic`, each prompt goes to that provider's API, and summarisation prompts include
+up to the first 6,000 characters of each summarised file.
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-npx synapse-map serve ~/code/your-project --provider anthropic
+export GEMINI_API_KEY=...
+npx synapse-map serve ~/code/your-project --provider gemini
 ```
 
-The key is read from `ANTHROPIC_API_KEY` and nowhere else, never a flag or a file, so it
-cannot land in shell history or a commit. An unset key fails up front with the command
-that fixes it.
+Keys are read from the environment and nowhere else, never a flag, a file or the web
+page, so they cannot land in shell history, a commit or a browser. In the page, a
+provider whose key is not set, or a stopped Ollama, shows as disabled with the reason on
+hover. An unset key fails up front with the command that fixes it.
 
-Both providers receive byte-identical prompts: the summarisation prompt, its JSON schema
-and the retrieval context are built by the same code, and a test asserts it. Only the
+All three receive byte-identical prompts: the summarisation prompt, its JSON schema and
+the retrieval context are built by the same code, and tests assert it. Only the
 transport differs.
 
-**Embeddings are always Ollama.** The Anthropic API has no embeddings endpoint, so
-`index` and `ask` embed locally even under `--provider anthropic`. Synapse says so
-rather than quietly swapping in another model, because vectors from two models are not
-comparable and mixing them corrupts an index in a way that is hard to notice.
+**Embeddings follow the provider where they can.** Gemini has an embeddings endpoint, so
+Gemini mode needs no Ollama at all. Anthropic has none, so `index` and `ask` keep
+embedding with Ollama under `--provider anthropic`, and Synapse says so rather than
+quietly swapping in another model. Each embedding model keeps its own index files, so
+switching providers in the page reuses the index already built for each one instead of
+re-embedding.
 
 ## Private repositories
 
 `analyze` and `serve` clone private repositories with a token from the `GITHUB_TOKEN`
 environment variable, or from `--token`. Prefer the variable: a flag lands in shell
-history and in the process's own argument list.
+history and in the process's own argument list. In the page, the start-page form has a
+"Private repository?" field: its token goes to the local server once, is used for that
+clone, and is never stored, logged or returned.
 
 ```bash
 export GITHUB_TOKEN=ghp_...
@@ -170,16 +190,18 @@ while the page shows live progress, then swaps to the graph without a reload.
 - **Clicking a file** shows its summary, metrics (importance, imports each way, commits,
   lines) and top functions, with a button that pre-fills a question about it.
 - **Ask** answers from the index and lists its sources; clicking a source flies the
-  camera to that file.
+  camera to that file. **Answer with** switches between Local, Gemini and Claude.
+- **Labels** name the dozen most important files on the map, and the selected one.
 
-`/` is an overview page for the project, with the explorer one click away.
+`/` is the start page: paste a GitHub URL or a local folder there to analyse another
+repository, or follow "Analyse another" from the explorer's toolbar.
 
 The server binds to `127.0.0.1` by default and only answers requests addressed to
 localhost, which stops a website you visit from reaching it through DNS rebinding. Every
 response carries a strict Content-Security-Policy and no-framing headers. Binding to
 another address with `--host` is an explicit choice to be reachable, and prints a warning:
-the API has no authentication, and questions run the model, which costs money on
-`--provider anthropic`.
+the API has no authentication, and questions run the model, which costs money on a
+cloud provider.
 
 ## Output
 
@@ -217,7 +239,7 @@ A trimmed `graph.json`:
                        "summary": "Doubles the value it is given." } ],
   "functionEdges": [ { "from": "src/util.ts#double", "to": "src/hub.ts#sharedHelper",
                        "type": "call", "weight": 1 } ],
-  "summarization": { "ran": true, "model": "qwen2.5:14b-instruct", "selected": 50,
+  "summarization": { "ran": true, "model": "qwen2.5-coder:14b", "selected": 50,
                      "fromCache": 47, "generated": 3, "failed": 0 }
 }
 ```

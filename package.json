@@ -17,7 +17,8 @@
     "analyze": "node packages/cli/dist/src/index.js analyze",
     "build:web": "turbo run build --filter=@synapse/web",
     "dev:web": "npm run dev --workspace @synapse/web",
-    "release:pack": "turbo run build && node scripts/pack.mjs"
+    "release:pack": "turbo run build && node scripts/pack.mjs",
+    "smoke": "node scripts/smoke-test.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

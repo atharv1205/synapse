@@ -1,5 +1,4 @@
-import { DEFAULT_EMBED_MODEL } from "../llm/ollama.js";
-import { createProviders, type ProviderOptions } from "../llm/provider.js";
+import { createProviders, defaultEmbedModelFor, type ProviderOptions } from "../llm/provider.js";
 import type { Preflight } from "../llm/types.js";
 import type { RepoGraph } from "../types.js";
 import { buildIndex, loadIndex, type EmbeddingBackend } from "./index.js";
@@ -101,7 +100,7 @@ export function buildAnswerPrompt(question: string, hits: SearchHit[]): string {
  */
 export async function ask(question: string, options: AskOptions): Promise<AskResult> {
   const { cacheDir, topK = DEFAULT_TOP_K, onProgress = () => {} } = options;
-  const embedModel = options.embedModel ?? DEFAULT_EMBED_MODEL;
+  const embedModel = options.embedModel ?? defaultEmbedModelFor(options.provider);
 
   const providers = createProviders(options);
   const embedBackend: EmbeddingBackend = options.embedBackend ?? providers.embed;

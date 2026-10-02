@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { Source } from "@synapse/core";
-import { api, ApiError, type AskAnswer } from "../api";
+import { api, ApiError, PROVIDER_LABELS, type AskAnswer, type ProviderName } from "../api";
 
 export interface AskPanelProps {
   /** Set when a node's "Ask about this file" button pre-filled a question. */
   prefill?: string;
   /** Whether /api/status says both models are ready. */
   canAsk: boolean;
+  /** Who answers; undefined means the server's default. */
+  provider?: ProviderName;
   /** Remediation from /api/status, shown when asking is unavailable. */
   unavailableMessage?: string;
   /** Clicking a cited source focuses that file in the 3D view. */
@@ -17,6 +19,7 @@ export interface AskPanelProps {
 export function AskPanel({
   prefill,
   canAsk,
+  provider,
   unavailableMessage,
   onFocusSource,
   onSourcesChange,
@@ -45,7 +48,7 @@ export function AskPanel({
     onSourcesChange([]);
 
     try {
-      const result = await api.ask(trimmed);
+      const result = await api.ask(trimmed, provider);
       setAnswer(result);
       onSourcesChange(result.sources.map((s) => s.path));
     } catch (caught) {
@@ -91,8 +94,9 @@ export function AskPanel({
 
       {pending && (
         <p className="muted small">
-          Retrieving chunks and running the model locally. This can take a while on a large
-          model.
+          {provider === undefined || provider === "ollama"
+            ? "Retrieving context and running the local model. This can take a while on a large model."
+            : `Retrieving context and asking ${PROVIDER_LABELS[provider]}.`}
         </p>
       )}
 

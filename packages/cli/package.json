@@ -5,7 +5,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --build"
+    "build": "tsc --build",
+    "test": "node --test dist/test/"
   },
   "bin": {
     "synapse": "./dist/src/index.js"

@@ -1,4 +1,4 @@
-import { OrbitControls } from "@react-three/drei";
+import { Html, OrbitControls } from "@react-three/drei";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState, type ElementRef } from "react";
 import * as THREE from "three";
@@ -160,6 +160,124 @@ function Nodes({
     >
       <meshStandardMaterial roughness={0.45} metalness={0.1} />
     </instancedMesh>
+  );
+}
+
+/** How many of the most important prominent files get a name on the map. */
+const LABEL_COUNT = 12;
+
+/**
+ * The name a label shows: the file name, or `folder/file` for names that say nothing on
+ * their own, like `index.ts` or `__init__.py`, of which a repository has dozens.
+ */
+export function labelFor(filePath: string): string {
+  const parts = filePath.split("/");
+  const name = parts[parts.length - 1] ?? filePath;
+  const generic = /^(index\.[cm]?[jt]sx?|__init__\.py|mod\.rs|main\.(py|go))$/.test(name);
+  return generic && parts.length > 1 ? `${parts[parts.length - 2]}/${name}` : name;
+}
+
+/**
+ * Names on the map for the files that matter most, so the important ones can be found by
+ * eye without clicking around. Only the top few prominent files and the selected one are
+ * labelled; naming every node would bury the graph.
+ *
+ * These are DOM labels (drei's Html), not 3D text: they stay crisp at any zoom, and drei's
+ * 3D text builds a worker from a blob: URL, which the server's Content-Security-Policy
+ * refuses. They sit below the panels, which carry z-index 2.
+ */
+function Labels({
+  layout,
+  threshold,
+  selectedIndex,
+  framing,
+}: {
+  layout: Layout;
+  threshold: number;
+  selectedIndex?: number;
+  framing: number;
+}) {
+  const labelled = useMemo(() => {
+    const top = layout.nodes
+      .filter((n) => n.node.importance >= threshold)
+      .sort((a, b) => b.node.importance - a.node.importance)
+      .slice(0, LABEL_COUNT);
+    const selected = layout.nodes.find((n) => n.index === selectedIndex);
+    // The selected file goes first, so it wins every overlap below.
+    if (selected) return [selected, ...top.filter((n) => n !== selected)];
+    return top;
+  }, [layout, threshold, selectedIndex]);
+
+  // Two labelled files with the same name (src/flask/app.py, src/flask/sansio/app.py)
+  // would be indistinguishable, so clashing names get their folder.
+  const names = useMemo(() => {
+    const short = labelled.map((n) => labelFor(n.node.path));
+    return short.map((name, i) => {
+      if (short.indexOf(name) === short.lastIndexOf(name)) return name;
+      const parts = labelled[i]!.node.path.split("/");
+      return parts.slice(-2).join("/");
+    });
+  }, [labelled]);
+
+  // Labels that would overlap a more important one are hidden, in order of importance.
+  // Checked a few times a second against the camera's real projection, so a label
+  // reappears as soon as rotating the graph gives it room.
+  const spans = useRef(new Map<number, HTMLSpanElement>());
+  const camera = useThree((state) => state.camera);
+  const size = useThree((state) => state.size);
+  const ticks = useRef(0);
+  const scratch = useMemo(() => new THREE.Vector3(), []);
+
+  useFrame(() => {
+    if (ticks.current++ % 6 !== 0) return;
+    const placed: Array<[number, number, number, number]> = [];
+
+    labelled.forEach((positioned, i) => {
+      const span = spans.current.get(positioned.index);
+      if (!span) return;
+      scratch.set(positioned.x, positioned.y, positioned.z).project(camera);
+      const behind = scratch.z > 1;
+      const x = ((scratch.x + 1) / 2) * size.width;
+      const y = ((1 - scratch.y) / 2) * size.height;
+      const w = span.offsetWidth + 2;
+      const h = span.offsetHeight + 2;
+      const box: [number, number, number, number] = [x - w / 2, y - h, x + w / 2, y];
+      const clash = placed.some(
+        ([l, t, r, b]) => box[0] < r && box[2] > l && box[1] < b && box[3] > t,
+      );
+      const show = !behind && (i === 0 && positioned.index === selectedIndex ? true : !clash);
+      span.style.visibility = show ? "visible" : "hidden";
+      if (show) placed.push(box);
+    });
+  });
+
+  return (
+    <>
+      {labelled.map((positioned, i) => {
+        // Lift the label just clear of its sphere, whose radius scales with the frame.
+        const lift = radiusFor(positioned, framing) * 1.6;
+        return (
+          <Html
+            key={positioned.index}
+            position={[positioned.x, positioned.y + lift, positioned.z]}
+            center
+            zIndexRange={[1, 0]}
+            style={{ pointerEvents: "none" }}
+          >
+            <span
+              ref={(span) => {
+                if (span) spans.current.set(positioned.index, span);
+                else spans.current.delete(positioned.index);
+              }}
+              className={`node-label${positioned.index === selectedIndex ? " is-selected" : ""}`}
+              title={positioned.node.path}
+            >
+              {names[i]}
+            </span>
+          </Html>
+        );
+      })}
+    </>
   );
 }
 
@@ -400,6 +518,14 @@ export function GraphScene(
 
       <Edges layout={layout} threshold={props.threshold} opacity={showcase ? 0.75 : 0.5} />
       <Nodes {...props} nodeScale={showcase ? 2.8 : 1} framing={framing} />
+      {!showcase && (
+        <Labels
+          layout={layout}
+          threshold={props.threshold}
+          selectedIndex={props.selectedIndex}
+          framing={framing}
+        />
+      )}
 
       <CameraFocus layout={layout} focusIndex={props.focusIndex} radius={framing} mode={mode} />
       <ViewOffset occludedRight={occludedRight} />

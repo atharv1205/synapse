@@ -1,4 +1,5 @@
-import type { Status } from "../api";
+import { PROVIDER_LABELS, type ProviderName, type Status } from "../api";
+import { Link } from "../router";
 
 export interface StatusGateProps {
   /** Undefined while the first /api/status call is still in flight. */
@@ -44,6 +45,9 @@ export function StatusGate({ status, error, onRetry }: StatusGateProps): JSX.Ele
           <button className="primary" onClick={onRetry}>
             Check again
           </button>
+          <Link href="/" className="splash-home">
+            Try another repository
+          </Link>
         </Splash>
       );
     }
@@ -58,6 +62,9 @@ export function StatusGate({ status, error, onRetry }: StatusGateProps): JSX.Ele
           <button className="primary" onClick={onRetry}>
             Check again
           </button>
+          <Link href="/" className="splash-home">
+            Or analyse a repository from the start page
+          </Link>
         </Splash>
       );
     }
@@ -78,33 +85,31 @@ export function StatusGate({ status, error, onRetry }: StatusGateProps): JSX.Ele
   return undefined;
 }
 
-/** A non-blocking banner for conditions the scene can render alongside. */
+/**
+ * A non-blocking banner for conditions the scene can render alongside. It describes the
+ * provider the viewer has selected, not Ollama in general: with Gemini selected and
+ * working, a stopped Ollama is not a problem worth a red banner.
+ */
 export function StatusBanner({ status }: { status: Status }): JSX.Element | undefined {
-  if (!status.ollama.reachable) {
-    return (
-      <Banner tone="error" title="Ollama is not reachable — questions are unavailable">
-        {status.chatModel.message}
-      </Banner>
-    );
-  }
+  const label = PROVIDER_LABELS[status.provider.chat as ProviderName] ?? status.provider.chat;
+  const problems = [status.chatModel, status.embedModel]
+    .filter((m) => !m.available && m.message)
+    .map((m) => m.message!);
+  // Chat and embeddings often fail for the same reason (Ollama is down); say it once.
+  const unique = [...new Set(problems)];
 
-  const missing = [
-    !status.chatModel.available ? status.chatModel : undefined,
-    !status.embedModel.available ? status.embedModel : undefined,
-  ].filter((m): m is NonNullable<typeof m> => m !== undefined);
-
-  if (missing.length > 0) {
+  if (unique.length > 0) {
     return (
-      <Banner tone="error" title="A model is missing — questions are unavailable">
-        {missing.map((m) => m.message).join("\n")}
+      <Banner tone="error" title={`${label} isn't ready, so questions are unavailable`}>
+        {unique.join("\n\n")}
       </Banner>
     );
   }
 
   if (!status.index.exists) {
     return (
-      <Banner tone="info" title="No embedding index yet">
-        {"Questions will build one on the first ask, or use “Rebuild index” to pre-warm it."}
+      <Banner tone="info" title="No question index yet">
+        {"The first question builds one, or use “Rebuild index” to build it now."}
       </Banner>
     );
   }

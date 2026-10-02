@@ -1,9 +1,21 @@
 import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import path from "node:path";
+import { DEFAULT_EMBED_MODEL } from "../llm/ollama.js";
 import type { Chunk } from "./chunk.js";
 
 export const INDEX_FILENAME = "embeddings.json";
 export const VECTORS_FILENAME = "embeddings.bin";
+
+/**
+ * Each embedding model keeps its own pair of files, so switching the explorer between the
+ * local model and Gemini does not throw away the other's index and re-embed everything.
+ * The default local model keeps the original names, so indexes built before this load.
+ */
+export function indexFiles(model: string): { manifest: string; vectors: string } {
+  if (model === DEFAULT_EMBED_MODEL) return { manifest: INDEX_FILENAME, vectors: VECTORS_FILENAME };
+  const slug = model.replace(/[^a-z0-9.-]+/gi, "_");
+  return { manifest: `embeddings-${slug}.json`, vectors: `embeddings-${slug}.bin` };
+}
 
 /** A stored chunk plus the vector it embedded to. */
 export interface StoredChunk extends Chunk {
@@ -95,16 +107,17 @@ export class BruteForceStore implements VectorStore {
 
   /** Loads an existing index, treating anything unreadable or stale as empty. */
   static async load(dir: string, model: string): Promise<BruteForceStore> {
+    const files = indexFiles(model);
     try {
       const manifest = JSON.parse(
-        await readFile(path.join(dir, INDEX_FILENAME), "utf8"),
+        await readFile(path.join(dir, files.manifest), "utf8"),
       ) as IndexManifest;
 
       if (manifest.version !== 1 || !Array.isArray(manifest.entries)) {
         return BruteForceStore.empty(dir, model);
       }
 
-      const raw = await readFile(path.join(dir, VECTORS_FILENAME));
+      const raw = await readFile(path.join(dir, files.vectors));
       const expected = manifest.entries.length * manifest.dim;
       const vectors = new Float32Array(
         raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength),
@@ -212,13 +225,15 @@ export class BruteForceStore implements VectorStore {
       entries: this.chunks,
     };
 
-    await writeFile(path.join(this.dir, INDEX_FILENAME), `${JSON.stringify(manifest)}\n`, "utf8");
-    await writeFile(path.join(this.dir, VECTORS_FILENAME), Buffer.from(this.vectors.buffer));
+    const files = indexFiles(this.model);
+    await writeFile(path.join(this.dir, files.manifest), `${JSON.stringify(manifest)}\n`, "utf8");
+    await writeFile(path.join(this.dir, files.vectors), Buffer.from(this.vectors.buffer));
   }
 
   /** Removes both files, for tests and for forcing a clean rebuild. */
   async clear(): Promise<void> {
-    await rm(path.join(this.dir, INDEX_FILENAME), { force: true });
-    await rm(path.join(this.dir, VECTORS_FILENAME), { force: true });
+    const files = indexFiles(this.model);
+    await rm(path.join(this.dir, files.manifest), { force: true });
+    await rm(path.join(this.dir, files.vectors), { force: true });
   }
 }

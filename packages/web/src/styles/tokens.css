@@ -170,6 +170,58 @@ pre {
   height: 16px;
 }
 
+/* --- the Local / Gemini / Claude switch, on both pages ------------------- */
+
+.provider-switch {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--field);
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--radius-s);
+}
+
+.provider-switch .provider-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.provider-switch .provider-option:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--control);
+}
+
+.provider-switch .provider-option.is-active {
+  color: var(--text);
+  background: var(--control-hover);
+}
+
+.provider-switch .provider-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.provider-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.provider-dot.is-ready {
+  background: var(--green);
+}
+
 /* An informational spinner used by the loading states. */
 .spinner {
   width: 26px;

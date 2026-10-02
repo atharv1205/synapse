@@ -1,13 +1,17 @@
 import { AnthropicClient, DEFAULT_ANTHROPIC_MODEL, type AnthropicConfig } from "./anthropic.js";
+import { DEFAULT_GEMINI_EMBED_MODEL, DEFAULT_GEMINI_MODEL, GeminiClient } from "./gemini.js";
 import { DEFAULT_EMBED_MODEL, DEFAULT_MODEL, OllamaClient } from "./ollama.js";
 import type { LlmProvider, ProviderName } from "./types.js";
 
 export interface ProviderOptions {
-  /** Which backend answers and summarises. Embeddings are always Ollama. */
+  /**
+   * Which backend answers and summarises. Embeddings come from the same backend when it
+   * has an embeddings endpoint (Gemini), and from Ollama otherwise (Anthropic).
+   */
   provider?: ProviderName;
   /** Chat model. Defaults to the chosen provider's own default. */
   model?: string;
-  /** Embedding model, always resolved against Ollama. */
+  /** Embedding model, resolved against whichever backend embeds. */
   embedModel?: string;
   /** Ollama base URL. */
   baseUrl?: string;
@@ -19,7 +23,7 @@ export interface ProviderOptions {
 export interface ProviderPair {
   /** Summarises files and answers questions. */
   chat: LlmProvider;
-  /** Produces embeddings. Always Ollama — see `embedNote`. */
+  /** Produces embeddings: Gemini in Gemini mode, Ollama otherwise; see `embedNote`. */
   embed: LlmProvider;
   embedModel: string;
   /**
@@ -32,11 +36,25 @@ export interface ProviderPair {
 
 /** The chat model a provider uses when none is named. */
 export function defaultModelFor(provider: ProviderName): string {
-  return provider === "anthropic" ? DEFAULT_ANTHROPIC_MODEL : DEFAULT_MODEL;
+  if (provider === "anthropic") return DEFAULT_ANTHROPIC_MODEL;
+  if (provider === "gemini") return DEFAULT_GEMINI_MODEL;
+  return DEFAULT_MODEL;
+}
+
+/**
+ * The embedding model a provider uses when none is named. Changing it changes the
+ * vectors, so the question index is rebuilt; vectors from two models are not comparable.
+ */
+export function defaultEmbedModelFor(provider: ProviderName = "ollama"): string {
+  return provider === "gemini" ? DEFAULT_GEMINI_EMBED_MODEL : DEFAULT_EMBED_MODEL;
 }
 
 export function createChatProvider(options: ProviderOptions = {}): LlmProvider {
   const provider = options.provider ?? "ollama";
+
+  if (provider === "gemini") {
+    return new GeminiClient({ model: options.model ?? DEFAULT_GEMINI_MODEL, timeoutMs: options.timeoutMs });
+  }
 
   if (provider === "anthropic") {
     return new AnthropicClient({
@@ -54,13 +72,16 @@ export function createChatProvider(options: ProviderOptions = {}): LlmProvider {
 }
 
 /**
- * Embeddings are Ollama-only, whatever `--provider` says.
- *
- * Anthropic has no embeddings endpoint. Rather than silently swapping in some other
- * model — which would produce vectors that are not comparable with anything already in
- * the index — retrieval keeps using Ollama and the mismatch is reported.
+ * Gemini embeds with Gemini, so Gemini mode needs no Ollama. Anthropic has no
+ * embeddings endpoint: rather than silently swapping in some other model, whose vectors
+ * would not be comparable with anything already in the index, retrieval keeps using
+ * Ollama and the mismatch is reported.
  */
 export function createEmbeddingProvider(options: ProviderOptions = {}): LlmProvider {
+  const provider = options.provider ?? "ollama";
+  if (provider === "gemini") {
+    return new GeminiClient({ timeoutMs: options.timeoutMs });
+  }
   return new OllamaClient({
     model: options.embedModel ?? DEFAULT_EMBED_MODEL,
     baseUrl: options.baseUrl,
@@ -71,7 +92,7 @@ export function createEmbeddingProvider(options: ProviderOptions = {}): LlmProvi
 export function createProviders(options: ProviderOptions = {}): ProviderPair {
   const chat = createChatProvider(options);
   const embed = createEmbeddingProvider(options);
-  const embedModel = options.embedModel ?? DEFAULT_EMBED_MODEL;
+  const embedModel = options.embedModel ?? defaultEmbedModelFor(options.provider);
 
   return {
     chat,

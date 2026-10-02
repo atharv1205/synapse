@@ -1,6 +1,11 @@
 import type { JsonSchema, LlmProvider, Preflight } from "./types.js";
 export const DEFAULT_OLLAMA_URL = "http://localhost:11434";
-export const DEFAULT_MODEL = "qwen2.5:14b-instruct";
+/**
+ * Qwen2.5-Coder, the project spec's choice: trained on code, which is what every prompt
+ * here is about. Any pulled chat model works through --model; qwen2.5:14b-instruct was
+ * the default until this one.
+ */
+export const DEFAULT_MODEL = "qwen2.5-coder:14b";
 export const DEFAULT_EMBED_MODEL = "nomic-embed-text";
 
 export interface OllamaConfig {

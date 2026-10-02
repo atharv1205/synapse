@@ -116,6 +116,22 @@ describe("OllamaClient preflight", () => {
     );
   });
 
+  it("defaults to Qwen2.5-Coder and names the pull command when it is missing", async () => {
+    await withFetch(
+      (async () =>
+        new Response(JSON.stringify({ models: [{ name: "qwen2.5:14b-instruct" }] }), {
+          status: 200,
+        })) as unknown as typeof fetch,
+      async () => {
+        const client = new OllamaClient();
+        assert.equal(client.model, "qwen2.5-coder:14b");
+        const result = await client.preflight();
+        assert.equal(result.ok, false);
+        assert.match(result.ok === false ? result.message : "", /ollama pull qwen2\.5-coder:14b/);
+      },
+    );
+  });
+
   it("accepts a bare model name against a :latest tag", async () => {
     await withFetch(
       (async () =>

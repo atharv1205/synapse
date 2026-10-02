@@ -4,7 +4,7 @@ export type Preflight = { ok: true } | { ok: false; message: string };
 /** A JSON Schema constraining a model's structured output. */
 export type JsonSchema = Record<string, unknown>;
 
-export type ProviderName = "ollama" | "anthropic";
+export type ProviderName = "ollama" | "anthropic" | "gemini";
 
 /**
  * What the summarisation and question-answering passes need from a model backend.
