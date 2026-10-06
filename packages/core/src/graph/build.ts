@@ -93,6 +93,25 @@ export function buildGraph(input: BuildInput): BuildResult {
   const weights = input.weights ?? DEFAULT_WEIGHTS;
   const filePaths = input.files.map((f) => f.path);
 
+  // --- Declarations -----------------------------------------------------------
+  const symbolsByFile = new Map<string, FunctionSymbol[]>();
+  /** file -> name -> symbol id, for resolving imports of packages and calls. */
+  const symbolIndex = new Map<string, Map<string, string>>();
+
+  for (const file of input.files) {
+    const parsed = input.parsed.get(file.path);
+    const symbols = parsed?.symbols ?? [];
+    symbolsByFile.set(file.path, symbols);
+
+    const index = new Map<string, string>();
+    for (const symbol of symbols) {
+      // Prefer the first declaration when a simple name is reused (e.g. two `render` methods).
+      if (!index.has(symbol.name)) index.set(symbol.name, symbol.id);
+      index.set(symbol.qualifiedName, symbol.id);
+    }
+    symbolIndex.set(file.path, index);
+  }
+
   // --- File-level edges -----------------------------------------------------
   const importPairs: Array<{ from: string; to: string }> = [];
   let externalImports = 0;
@@ -108,13 +127,36 @@ export function buildGraph(input: BuildInput): BuildResult {
     bindingOrigins.set(file.path, bindings);
 
     for (const ref of parsed.imports) {
-      const target = input.resolver.resolve(file.path, file.language, ref);
-      if (!target) {
-        externalImports++;
+      let targets = input.resolver.resolveAll(file.path, file.language, ref);
+      if (targets.length === 0) {
+        if (!ref.implicit) externalImports++;
         continue;
       }
-      importPairs.push({ from: file.path, to: target });
-      for (const name of ref.names) bindings.set(name.local, target);
+
+      if (ref.uses) {
+        // A package import: keep the package's files that declare a name the importer
+        // uses, and bind each name to its file so calls through it resolve.
+        const declaring = targets.filter((target) => {
+          const index = symbolIndex.get(target);
+          let hit = false;
+          for (const name of ref.uses!) {
+            if (index?.has(name)) {
+              bindings.set(name, target);
+              hit = true;
+            }
+          }
+          return hit;
+        });
+        // An implicit dependency, or a Java wildcard, exists only through what is used.
+        // A Go import whose uses match nothing (constants, variables, which are not
+        // declarations here) still depends on the package, since Go rejects unused imports.
+        const keepAll = declaring.length === 0 && ref.kind === "go" && !ref.implicit;
+        targets = keepAll ? targets : declaring;
+      }
+
+      for (const target of targets) importPairs.push({ from: file.path, to: target });
+      const first = targets[0];
+      if (first) for (const name of ref.names) bindings.set(name.local, first);
     }
   }
 
@@ -136,23 +178,6 @@ export function buildGraph(input: BuildInput): BuildResult {
   const totalWeight = weights.centrality + churnWeight;
 
   // --- Function-level graph -------------------------------------------------
-  const symbolsByFile = new Map<string, FunctionSymbol[]>();
-  /** file -> name -> symbol id, for resolving calls within and across files. */
-  const symbolIndex = new Map<string, Map<string, string>>();
-
-  for (const file of input.files) {
-    const parsed = input.parsed.get(file.path);
-    const symbols = parsed?.symbols ?? [];
-    symbolsByFile.set(file.path, symbols);
-
-    const index = new Map<string, string>();
-    for (const symbol of symbols) {
-      // Prefer the first declaration when a simple name is reused (e.g. two `render` methods).
-      if (!index.has(symbol.name)) index.set(symbol.name, symbol.id);
-      index.set(symbol.qualifiedName, symbol.id);
-    }
-    symbolIndex.set(file.path, index);
-  }
 
   const callPairs: Array<{ from: string; to: string }> = [];
 

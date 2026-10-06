@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400" role="img" aria-label="Synapse: map a codebase by what it depends on">
+  <title>Synapse: map a codebase by what it depends on</title>
+  <defs>
+    <linearGradient id="ramp" gradientUnits="userSpaceOnUse" x1="60" y1="0" x2="900" y2="0">
+      <stop offset="0" stop-color="#0e8fae"/>
+      <stop offset="0.55" stop-color="#2f9e57"/>
+      <stop offset="1" stop-color="#c98612"/>
+    </linearGradient>
+    <filter id="soft" x="-10%" y="-30%" width="120%" height="160%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+    <style>
+      /* One pen stroke writes the word, easing in and out like a hand would. */
+      .ink { fill: none; stroke-linecap: round; stroke-linejoin: round;
+        stroke-dasharray: 1 1; stroke-dashoffset: 1; opacity: 0;
+        animation: write 3.4s cubic-bezier(0.62, 0, 0.32, 1) 0.3s forwards; }
+      .tag { font: 400 26px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+        fill: #57606a; letter-spacing: 0.2px; opacity: 0;
+        animation: rise 1.2s cubic-bezier(0.16, 1, 0.3, 1) 3.3s forwards; }
+      @keyframes write { 0% { opacity: 0; stroke-dashoffset: 1; } 1% { opacity: 1; } 100% { opacity: 1; stroke-dashoffset: 0; } }
+      @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+      @media (prefers-reduced-motion: reduce) {
+        .ink, .tag { animation: none; opacity: 1; stroke-dashoffset: 0; transform: none; }
+      }
+    </style>
+  </defs>
+  <g transform="translate(176 -40) skewX(-8)">
+    <path class="ink" pathLength="1" d="M 40 250 C 70 250, 100 200, 118 140 C 124 165, 152 190, 150 215 C 148 240, 120 250, 100 238 C 125 252, 165 240, 200 140 C 195 200, 205 240, 230 240 C 250 240, 265 200, 270 140 C 270 200, 272 290, 258 325 C 248 350, 218 350, 222 326 C 228 300, 270 268, 330 238 C 330 220, 334 170, 340 142 L 338 240 L 339 205 C 345 170, 362 142, 385 142 C 405 144, 400 200, 402 225 C 404 240, 415 244, 430 236 C 450 225, 480 165, 512 150 C 495 138, 462 150, 462 198 C 462 240, 502 246, 514 200 L 517 148 C 516 190, 514 230, 522 240 C 530 248, 545 240, 558 226 C 570 210, 590 170, 600 142 L 595 340 L 598 175 C 615 140, 663 142, 663 192 C 663 240, 620 250, 599 232 C 625 250, 660 246, 690 230 C 700 215, 718 180, 727 145 C 743 168, 765 195, 763 216 C 761 240, 735 250, 715 240 C 740 254, 775 246, 805 215 C 815 205, 850 185, 850 162 C 850 135, 805 140, 803 190 C 801 235, 835 250, 885 222" stroke="url(#ramp)" stroke-width="8"/>
+  </g>
+  <text class="tag" x="600" y="368" text-anchor="middle">Map a codebase by what it depends on</text>
+</svg>

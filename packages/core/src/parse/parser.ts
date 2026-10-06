@@ -1,4 +1,6 @@
 import Parser from "tree-sitter";
+import Go from "tree-sitter-go";
+import Java from "tree-sitter-java";
 import JavaScript from "tree-sitter-javascript";
 import Python from "tree-sitter-python";
 import TypeScript from "tree-sitter-typescript";
@@ -11,6 +13,8 @@ const GRAMMARS: Record<Language, unknown> = {
   typescript: TypeScript.typescript,
   tsx: TypeScript.tsx,
   python: Python,
+  java: Java,
+  go: Go,
 };
 
 /**

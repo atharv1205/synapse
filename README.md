@@ -1,48 +1,92 @@
 <p align="center">
-  <img src="docs/intro.svg" alt="Synapse: map a codebase by what it depends on" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/intro-dark.svg">
+    <img src="docs/intro-light.svg" alt="Synapse: map a codebase by what it depends on" width="100%">
+  </picture>
 </p>
 
 Synapse turns a repository into a graph of its files and functions, ranks every file by
 how much the rest of the code relies on it, and lets you explore the result in 3D or ask
 questions whose answers cite their sources. It runs on your machine: parsing, ranking
-and retrieval are local, and summaries and answers come from a local model unless you
-choose the Anthropic API.
+and retrieval are local, and summaries and answers come from a local model through
+Ollama unless you choose Gemini or Claude. It reads JavaScript, TypeScript, Python, Java
+and Go.
 
-![synapse-map serve on pallets/flask: the terminal run, then the explorer narrowing to the important files, answering a question with cited sources, and flying to one of them](docs/demo.gif)
+![synapse-map on pallets/flask: the terminal run ranks the files, then the explorer narrows to the important ones, opens a file, answers a question with cited sources and flies to one, and switches to the folder view to open a folder](docs/demo.gif)
 
-<sub>Recorded from a real run of the packaged CLI on pallets/flask. The terminal replays that
-run's output with the 21 minutes of summarising sped up, and the model's 29-second wait
-for the answer is shortened; the explorer is otherwise shown at real speed.</sub>
+<sub>Recorded from a real run of the packaged CLI on pallets/flask with a local model
+(qwen2.5:14b-instruct through Ollama). The terminal replays that run's output with its
+6 minutes of summarising sped up and the working directory shortened to `~/code`. The
+explorer plays at about 1.4× speed, and the 12 seconds the model took to answer are
+sped up 8×.</sub>
 
-## Quick start
+## Getting started
+
+**1. See a map in seconds.** No install, no model, no API key:
 
 ```bash
-npx synapse-map serve https://github.com/pallets/flask
+npx synapse-map serve https://github.com/pallets/flask --skip-summarize
 ```
 
-That clones the repository, analyses it, and opens the explorer in your browser. The
-first run is the slow one: on Flask it took 21 minutes on an M2 Pro, nearly all of it
-the local 14B model summarising the 50 most important files. `--summarize-top 10` cuts
-that sharply, `--skip-summarize` removes it, and the result is cached in `.synapse/` in
-the current directory, so the next `serve` is instant.
+Synapse clones the repository, ranks its files and opens the explorer in your browser.
+On Flask the analysis takes about 8 seconds. You need Node.js 20 or later and git.
+
+**2. Try it on your own project.** From the project's folder:
+
+```bash
+npx synapse-map serve .
+```
+
+The explorer opens on the files that matter most. Click a file to see what imports it,
+what it imports and its main functions; switch **View** to folders on a large repository;
+drag the slider to show more or fewer files. Results are cached in `.synapse/`, so the
+next run opens instantly. Add `.synapse/` to your `.gitignore`.
+
+**3. Add summaries and questions.** Pick one:
+
+- **Local and private, with [Ollama](https://ollama.com).** Nothing leaves your machine.
+
+  ```bash
+  ollama pull qwen2.5-coder:14b
+  ollama pull nomic-embed-text
+  npx synapse-map serve .
+  ```
+
+- **Cloud, with Gemini.** Faster, and no model to download.
+
+  ```bash
+  export GEMINI_API_KEY=your-key
+  npx synapse-map serve . --provider gemini
+  ```
+
+Synapse summarises the 50 most important files, then answers questions in the **Ask**
+panel with links to the files it used. Summaries are the slow part with a local model:
+on Flask they took 21 minutes on an M2 Pro. `--summarize-top 10` makes it much faster.
+
+**4. Install it for good.**
+
+```bash
+npm install -g synapse-map
+synapse serve .
+```
+
+The command installs as both `synapse` and `synapse-map`.
+
+### Other ways to use it
+
+```bash
+synapse analyze .                                   # print the most important files
+synapse ask "where is authentication handled?" --show-sources
+synapse serve https://github.com/owner/repo         # any public GitHub repository
+```
 
 Once `serve` is running you can open more repositories from the page itself: paste a
 GitHub URL or a local folder into the box on the start page, pick who summarises, and
 the explorer opens on it when the analysis finishes. Repositories opened that way are
 cached in `~/.synapse-map/repos/`, so reopening one is instant.
 
-The same pipeline as separate steps, on a local project:
-
-```bash
-npx synapse-map analyze ~/code/your-project        # build the ranked graph
-npx synapse-map index --path ~/code/your-project   # embed it for questions
-npx synapse-map ask "where is authentication handled?" --path ~/code/your-project --show-sources
-npx synapse-map serve ~/code/your-project          # explore it in 3D
-```
-
-`index` is optional: `ask` builds the index itself the first time. The command installs
-as both `synapse-map` and `synapse`, so after `npm install -g synapse-map` either name
-works.
+A local folder is read in place and never modified. Your code only leaves your machine
+if you choose Gemini or Claude, and then only the slices sent for summaries and answers.
 
 ## Requirements
 
@@ -108,10 +152,16 @@ serve:
 
 Shared:
   --out <dir>            Where .synapse artefacts live (default: <path>/.synapse)
-  --provider <name>      ollama | anthropic  (default: ollama)
+  --provider <name>      ollama | gemini | anthropic  (default: ollama)
+                         Chooses what summarises and answers.
+                         gemini embeds with Gemini too, so it needs no Ollama; it
+                         reads GEMINI_API_KEY from the environment only.
+                         anthropic has no embeddings endpoint, so `ask` still embeds
+                         with Ollama; it reads ANTHROPIC_API_KEY from the environment only.
   --model <name>         Chat model (default: qwen2.5-coder:14b,
-                         or claude-opus-5 with --provider anthropic)
-  --embed-model <name>   Embedding model (default: nomic-embed-text)
+                         gemini-3.8-flash with gemini, claude-opus-5 with anthropic)
+  --embed-model <name>   Embedding model (default: nomic-embed-text,
+                         or gemini-embedding-001 with --provider gemini)
   --ollama-url <url>     Ollama base URL (default: http://localhost:11434)
   -h, --help             Show this message
   -v, --version          Print the installed version
@@ -272,13 +322,15 @@ holds ids into it.
 ## How it works
 
 **Ingestion.** Walks the tree honouring `.gitignore` at every level, including nested
-ignore files and negation patterns. `node_modules`, `.git`, virtualenvs and build output
-are always skipped.
+ignore files and negation patterns. `node_modules`, `.git`, virtualenvs, Go's `vendor`
+and build output (`dist`, `build`, `target`, `.gradle`) are always skipped.
 
-**Parsing.** tree-sitter parses JavaScript, TypeScript, TSX and Python, extracting
-imports (ESM, `require`, dynamic `import()`, Python's `import` and `from … import`
-including relative forms), function, class and method declarations, and call sites
-attributed to their enclosing function. Source is fed through tree-sitter's callback
+**Parsing.** tree-sitter parses JavaScript, TypeScript, TSX, Python, Java and Go,
+extracting imports (ESM, `require`, dynamic `import()`, Python's `import` and
+`from … import` including relative forms, Java's single-type, static and wildcard
+imports, Go's import specs with their aliases), function, class and method declarations
+(Java's interfaces, enums and records, Go's types and methods under their receiver), and
+call sites attributed to their enclosing function. Source is fed through tree-sitter's callback
 input, which has no size limit; handing the Node binding a string silently fails above
 32KB, which once dropped the largest and most-depended-on files from the graph. A file
 that cannot be parsed is recorded in `parseFailures` and reported, never dropped quietly.
@@ -286,7 +338,12 @@ that cannot be parsed is recorded in `parseFailures` and reported, never dropped
 **Resolution.** Imports are matched only against files that exist: TypeScript's NodeNext
 `./foo.js` meaning `./foo.ts`, directory imports resolving to `index.*`, Python relative
 imports with several leading dots, absolute imports under a `src/` layout, and bare
-specifiers naming sibling workspace packages. Anything left is counted as external,
+specifiers naming sibling workspace packages. A Java class import finds
+`com/acme/Foo.java` under any source root (`src/main/java`, `src/test/java`, a module's
+own). A Go import finds its package's directory through the `module` line of `go.mod`.
+Java wildcard imports and Go packages name several files, so they link only to the files
+that declare a name the importer uses, and files of one Java or Go package are linked
+through the names they share, without an import. Anything left is counted as external,
 never invented as a node.
 
 **Scoring.** Two signals, blended 70/30. *Centrality* is PageRank over the import graph,
@@ -346,7 +403,10 @@ panels rather than behind them.
   the files view's slider, and following the sources of an answer are the useful ways in.
 - **Call resolution is by name, not scope.** Two same-named functions in one file collapse
   into the first, and dynamic dispatch and re-exported names are not traced.
-- **Only JavaScript, TypeScript, TSX and Python are parsed.** Other files are ignored.
+- **Only JavaScript, TypeScript, TSX, Python, Java and Go are parsed.** Other files are
+  ignored. Java and Go uses are matched by name: a Java wildcard import or a Go package
+  links to the files declaring the names used, and in Go a constant or variable is not a
+  declaration Synapse tracks, so an import used only for one links to the whole package.
 - **Summaries describe the head of a file.** The prompt includes the first 6,000
   characters, so a summary of a very large file describes its beginning, and summaries
   are only as good as the model writing them.
@@ -376,7 +436,7 @@ Synapse is an npm-workspaces monorepo built with Turborepo:
 ```bash
 npm install
 npm run build          # every package in dependency order, cached by Turborepo
-npm test               # the core test suite
+npm test               # every package's tests
 node packages/cli/dist/src/index.js serve .
 ```
 
@@ -395,7 +455,8 @@ npm run dev --workspace @synapse/web                    # UI on :5317
 The overview page's live graph renders `packages/web/src/landing/sample-graph.json`, a
 trimmed analysis of this repository; regenerate it with
 `npm run sample-graph --workspace @synapse/web -- <path/to/graph.json>`. The GitHub URL
-the pages link to lives in `packages/web/src/site.ts`. Before hosting the overview on a
+the pages link to lives in `packages/web/src/site.ts`, and the package's own links in
+`scripts/pack.mjs`. Before hosting the overview on a
 domain, add a canonical link, `og:url`, `og:image` and a sitemap, which all need the
 absolute URL.
 
@@ -411,6 +472,13 @@ the built web app, and `THIRD_PARTY_NOTICES.md` for everything bundled into it. 
 internal `@synapse/*` names are never published. The script refuses to pack if any
 shipped import is not a declared dependency, and it only packs; publishing is a separate,
 deliberate step.
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md)
+covers setting up, running the tests and adding a language; please also read the
+[code of conduct](CODE_OF_CONDUCT.md). Report security problems privately, as described
+in [SECURITY.md](SECURITY.md).
 
 ## License
 

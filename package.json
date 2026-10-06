@@ -2,6 +2,13 @@
   "name": "synapse",
   "version": "0.1.0",
   "private": true,
+  "description": "Map a codebase by what it depends on, locally.",
+  "license": "MIT",
+  "author": "Atharva Dudhe",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/atharv1205/synapse.git"
+  },
   "type": "module",
   "workspaces": [
     "packages/*"

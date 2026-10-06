@@ -67,11 +67,11 @@ const PROJECT = "~/code/your-project";
 const PIPELINE = [
   {
     name: "Parse",
-    text: "tree-sitter reads JavaScript, TypeScript and Python, honouring every .gitignore, and pulls out imports, declarations and call sites.",
+    text: "tree-sitter reads JavaScript, TypeScript, Python, Java and Go, honouring every .gitignore, and pulls out imports, declarations and call sites.",
   },
   {
     name: "Resolve",
-    text: "Imports are matched to files that actually exist: NodeNext .js specifiers, index files, Python relative imports, sibling workspace packages.",
+    text: "Imports are matched to files that actually exist: NodeNext .js specifiers, index files, Python relative imports, Java source roots, Go modules, sibling workspace packages.",
   },
   {
     name: "Rank",

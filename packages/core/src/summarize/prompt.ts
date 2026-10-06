@@ -46,9 +46,12 @@ export interface SummaryResponse {
  * Recovers a declaration's signature by taking the source line it starts on. This is
  * cheap and accurate for the common single-line case; multi-line parameter lists get
  * an ellipsis rather than a reconstructed signature, which is honest about the limit.
+ * A Java declaration starts at its annotations, so lines of only annotations are skipped.
  */
 export function signatureOf(symbol: FunctionNode, lines: string[]): string {
-  const line = lines[symbol.startLine - 1]?.trim() ?? symbol.name;
+  let index = symbol.startLine - 1;
+  while (index < symbol.endLine - 1 && /^\s*(@[\w.]+(\([^)]*\))?\s*)+$/.test(lines[index] ?? "")) index++;
+  const line = lines[index]?.trim() ?? symbol.name;
   const cleaned = line.replace(/\s*\{\s*$/, "").replace(/\s*:\s*$/, "");
   if (cleaned.length <= 120) return cleaned;
   return `${cleaned.slice(0, 117)}...`;
@@ -64,7 +67,8 @@ export function truncateSource(source: string, limit = MAX_SOURCE_CHARS): {
 }
 
 function languageFence(language: FileNode["language"]): string {
-  return language === "python" ? "python" : "typescript";
+  if (language === "python" || language === "java" || language === "go") return language;
+  return "typescript";
 }
 
 /**

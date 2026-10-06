@@ -14,6 +14,8 @@ const LANGUAGE_NAMES: Record<Language, string> = {
   tsx: "TSX",
   javascript: "JavaScript",
   python: "Python",
+  java: "Java",
+  go: "Go",
 };
 
 function languageName(language: Language): string {

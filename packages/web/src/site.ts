@@ -4,11 +4,8 @@
  */
 export const SITE = {
   name: "Synapse",
-  /**
-   * Placeholder: the repository is not public yet. Replace with the real URL before
-   * publishing; every GitHub link on both pages reads it from here.
-   */
-  repositoryUrl: "https://github.com/your-username/synapse",
+  /** Every GitHub link on both pages reads it from here. */
+  repositoryUrl: "https://github.com/atharv1205/synapse",
   /** The npm package the setup steps run with npx. */
   packageName: "synapse-map",
 };

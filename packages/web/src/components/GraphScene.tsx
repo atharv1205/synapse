@@ -629,6 +629,12 @@ function CameraFocus({
   const goal = useRef(new THREE.Vector3());
   const distance = useRef(radius);
   const active = useRef(false);
+  // Read, not depended on, by the focus effects below. Switching between the files and
+  // folders views changes the radius; were it a dependency, the focused file would be
+  // flown back to and the new view's frame overridden, leaving the camera inside the
+  // folder bubbles.
+  const radiusRef = useRef(radius);
+  radiusRef.current = radius;
 
   // Orbit around the frame's centre (the important files, or the folders), not the
   // origin. Fixed at mount: later frames are flown to below rather than jumped to, and a
@@ -657,19 +663,21 @@ function CameraFocus({
     // Frame the node among its neighbours rather than filling the viewport with it. The
     // floor is half the framing radius: a fixed 45 units once put the camera inside
     // pallets/flask's cluster, where the neighbouring spheres filled the whole screen.
+    const radius = radiusRef.current;
     const own = radiusFor(positioned, radius) * 14;
     distance.current = Math.min(Math.max(own, radius * 0.5), radius * 1.4);
     active.current = true;
-  }, [focusIndex, layout, radius]);
+  }, [focusIndex, layout]);
 
   useEffect(() => {
     if (!focusCluster) return;
     goal.current.set(focusCluster.x, focusCluster.y, focusCluster.z);
     // Frame the folder's own files: far enough to take in their spread, near enough that
     // they read at the size they have in the files view.
+    const radius = radiusRef.current;
     distance.current = Math.min(Math.max(focusCluster.spread * 2.4, radius * 0.35), radius * 1.4);
     active.current = true;
-  }, [focusCluster, radius]);
+  }, [focusCluster]);
 
   useFrame((state, delta) => {
     const orbit = controls.current;

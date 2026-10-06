@@ -182,7 +182,9 @@ export function App() {
       onSelect: (cluster: number) => {
         setSelected(undefined);
         setSelectedCluster(cluster);
-        setFocusCluster(clustering.clusters[cluster]);
+        // A fresh object each time, so clicking a folder flown away from flies back.
+        const target = clustering.clusters[cluster];
+        setFocusCluster(target && { ...target });
       },
     };
   }, [folders, clustering, expanded, selectedCluster]);

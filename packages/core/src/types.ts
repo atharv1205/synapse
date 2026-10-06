@@ -1,5 +1,5 @@
 /** Languages we can currently parse. */
-export type Language = "javascript" | "typescript" | "tsx" | "python";
+export type Language = "javascript" | "typescript" | "tsx" | "python" | "java" | "go";
 
 /** A source file discovered during ingestion, before parsing. */
 export interface SourceFile {

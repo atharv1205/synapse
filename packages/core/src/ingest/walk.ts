@@ -18,6 +18,8 @@ const EXTENSION_LANGUAGE: Record<string, Language> = {
   ".tsx": "tsx",
   ".py": "python",
   ".pyi": "python",
+  ".java": "java",
+  ".go": "go",
 };
 
 /** Directories skipped regardless of .gitignore, because they never hold first-party source. */
@@ -32,6 +34,10 @@ const ALWAYS_SKIP = new Set([
   ".next",
   ".turbo",
   "site-packages",
+  // Go's vendored dependencies, and the build output of Maven, Gradle and Go tooling.
+  "vendor",
+  "target",
+  ".gradle",
 ]);
 
 /** Skip anything larger than this; minified bundles blow up the parser for no benefit. */
@@ -74,7 +80,10 @@ function isIgnored(layers: IgnoreLayer[], relPath: string, isDir: boolean): bool
 
 export interface WalkResult {
   files: SourceFile[];
-  /** Repo-relative paths of every package.json found, used to resolve workspace imports. */
+  /**
+   * Repo-relative paths of every package.json and go.mod found, used to resolve imports
+   * of workspace packages and Go modules to files in the repository.
+   */
   manifests: string[];
 }
 
@@ -113,7 +122,7 @@ export async function walkSourceFiles(root: string): Promise<WalkResult> {
 
       if (!entry.isFile()) continue;
 
-      if (entry.name === "package.json" && !isIgnored(layers, childRel, false)) {
+      if ((entry.name === "package.json" || entry.name === "go.mod") && !isIgnored(layers, childRel, false)) {
         manifests.push(childRel);
         continue;
       }

@@ -23,7 +23,7 @@ node packages/cli/dist/src/index.js analyze . --skip-summarize --out /tmp/self
 npm run sample-graph --workspace @synapse/web -- /tmp/self/graph.json
 ```
 
-The GitHub URL is a placeholder until the repository is public. Set it in `src/site.ts`.
+The GitHub URL every link on both pages uses is set in `src/site.ts`.
 
 ## Before hosting the overview on a domain
 

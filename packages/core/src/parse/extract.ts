@@ -9,11 +9,26 @@ export interface ImportedName {
 }
 
 export interface ImportRef {
-  /** The raw module specifier, e.g. `./foo`, `react`, `pkg.mod`. */
+  /**
+   * The raw module specifier, e.g. `./foo`, `react`, `pkg.mod`, `com.acme.Foo`,
+   * `github.com/acme/app/store`. Java wildcards end in `.*`; `.` stands for the file's
+   * own Go package.
+   */
   specifier: string;
-  kind: "esm" | "require" | "dynamic" | "python";
+  kind: "esm" | "require" | "dynamic" | "python" | "java" | "go";
   names: ImportedName[];
   line: number;
+  /**
+   * For an import that names a package rather than a file (a Java wildcard, a Go
+   * package, or the file's own package), the names the file uses from it. The graph
+   * links only to the package's files that declare one of them.
+   */
+  uses?: string[];
+  /**
+   * True for a dependency the language implies without an import statement: Java and Go
+   * files see their own package's declarations. Never counted as an external import.
+   */
+  implicit?: boolean;
 }
 
 /** A call site, attributed to the function that encloses it. */
@@ -62,6 +77,10 @@ export function parseFile(path: string, source: string, language: Language): Par
 
   if (language === "python") {
     visitPython(root, ROOT_CONTEXT, result);
+  } else if (language === "java") {
+    extractJava(root, result);
+  } else if (language === "go") {
+    extractGo(root, result);
   } else {
     visitJs(root, ROOT_CONTEXT, result);
   }
@@ -346,4 +365,308 @@ function visitPython(node: SyntaxNode, ctx: Context, result: ParsedFile): void {
   }
 
   visitChildren(node, ctx, result, visitPython);
+}
+
+// ---------------------------------------------------------------------------
+// Java
+// ---------------------------------------------------------------------------
+
+const JAVA_TYPE_DECLARATIONS = new Set([
+  "class_declaration",
+  "interface_declaration",
+  "enum_declaration",
+  "record_declaration",
+  "annotation_type_declaration",
+]);
+
+/** Names of types a Java file mentions, for matching against packages it sees whole. */
+interface JavaState {
+  types: Set<string>;
+}
+
+function javaIsPublic(node: SyntaxNode): boolean {
+  const modifiers = node.namedChildren.find((c) => c.type === "modifiers");
+  return modifiers ? /\bpublic\b/.test(modifiers.text) : false;
+}
+
+/**
+ * Java imports name classes, not files, but the convention of one top-level class per
+ * file named after it lets `com.acme.Foo` find `…/com/acme/Foo.java`. Wildcard imports
+ * and the file's own package name no file, so they carry the type names the file uses,
+ * and the graph links to whichever of the package's files declare them.
+ */
+function extractJava(root: SyntaxNode, result: ParsedFile): void {
+  const state: JavaState = { types: new Set() };
+  let pkg: string | undefined;
+  let pkgLine = 1;
+
+  for (const child of root.namedChildren) {
+    if (child.type === "package_declaration") {
+      pkg = child.namedChildren.find((c) => c.type === "scoped_identifier" || c.type === "identifier")?.text;
+      pkgLine = child.startPosition.row + 1;
+    } else if (child.type === "import_declaration") {
+      const target = child.namedChildren.find((c) => c.type === "scoped_identifier" || c.type === "identifier");
+      if (!target) continue;
+      const wildcard = child.namedChildren.some((c) => c.type === "asterisk");
+      const line = child.startPosition.row + 1;
+      if (wildcard) {
+        result.imports.push({ specifier: `${target.text}.*`, kind: "java", names: [], line });
+      } else {
+        const name = target.text.split(".").pop()!;
+        result.imports.push({ specifier: target.text, kind: "java", names: [{ local: name, imported: name }], line });
+      }
+    }
+  }
+
+  visitJava(root, ROOT_CONTEXT, result, state);
+
+  // Types declared here or imported by name need no package to find them.
+  const known = new Set([
+    ...result.symbols.filter((s) => s.kind === "class").map((s) => s.name),
+    ...result.imports.flatMap((i) => i.names.map((n) => n.local)),
+  ]);
+  const uses = [...state.types].filter((t) => !known.has(t)).sort();
+  for (const ref of result.imports) {
+    if (ref.specifier.endsWith(".*")) ref.uses = uses;
+  }
+  if (uses.length > 0) {
+    result.imports.push({
+      // The default package is the file's own directory, which `*` stands for.
+      specifier: pkg ? `${pkg}.*` : "*",
+      kind: "java",
+      names: [],
+      line: pkgLine,
+      uses,
+      implicit: true,
+    });
+  }
+}
+
+function visitJava(node: SyntaxNode, ctx: Context, result: ParsedFile, state: JavaState): void {
+  const visit: Visitor = (child, childCtx, res) => visitJava(child, childCtx, res, state);
+
+  if (JAVA_TYPE_DECLARATIONS.has(node.type)) {
+    const name = node.childForFieldName("name")?.text;
+    if (name) {
+      const symbol = recordSymbol(result, node, name, "class", { ...ctx, exported: javaIsPublic(node) });
+      visitChildren(node, { classStack: [...ctx.classStack, name], enclosing: symbol.id, exported: false }, result, visit);
+      return;
+    }
+  }
+
+  switch (node.type) {
+    case "package_declaration":
+    case "import_declaration":
+      return;
+
+    case "method_declaration":
+    case "constructor_declaration":
+    case "compact_constructor_declaration": {
+      const name = node.childForFieldName("name")?.text ?? ctx.classStack[ctx.classStack.length - 1];
+      if (!name) break;
+      const symbol = recordSymbol(result, node, name, "method", { ...ctx, exported: javaIsPublic(node) });
+      visitChildren(node, { ...ctx, enclosing: symbol.id, exported: false }, result, visit);
+      return;
+    }
+
+    case "type_identifier":
+      state.types.add(node.text);
+      return;
+
+    case "method_invocation": {
+      const name = node.childForFieldName("name")?.text;
+      if (name) result.calls.push({ callee: name, enclosing: ctx.enclosing, line: node.startPosition.row + 1 });
+      // `Helper.run()` names the class through a plain identifier, not a type.
+      const object = node.childForFieldName("object");
+      if (object?.type === "identifier" && /^[A-Z]/.test(object.text)) state.types.add(object.text);
+      break;
+    }
+
+    case "field_access": {
+      const object = node.childForFieldName("object");
+      if (object?.type === "identifier" && /^[A-Z]/.test(object.text)) state.types.add(object.text);
+      break;
+    }
+
+    case "object_creation_expression": {
+      // `new Foo()` calls Foo's constructor, which is declared under Foo's own name.
+      const type = node.childForFieldName("type");
+      const name = type?.type === "generic_type" ? type.namedChild(0)?.text : type?.text;
+      if (name && /^\w+$/.test(name)) {
+        result.calls.push({ callee: name, enclosing: ctx.enclosing, line: node.startPosition.row + 1 });
+      }
+      break;
+    }
+  }
+
+  visitChildren(node, ctx, result, visit);
+}
+
+// ---------------------------------------------------------------------------
+// Go
+// ---------------------------------------------------------------------------
+
+/**
+ * The name an import binds when it has no alias: the package name, which by convention
+ * is the last path segment, skipping a major-version suffix (`…/v2`) and the forms
+ * `gopkg.in/yaml.v3` and `go-github` use.
+ */
+export function goPackageName(importPath: string): string {
+  const parts = importPath.split("/");
+  let last = parts.pop() ?? importPath;
+  if (/^v\d+$/.test(last) && parts.length > 0) last = parts.pop()!;
+  return last.replace(/\.v\d+$/, "").replace(/^go-/, "").replace(/[-.]/g, "_");
+}
+
+/** Go's predeclared types and functions, which no file in the repository declares. */
+const GO_BUILTINS = new Set(
+  (
+    "any bool byte comparable complex64 complex128 error float32 float64 int int8 int16 int32 int64 " +
+    "rune string uint uint8 uint16 uint32 uint64 uintptr append cap clear close complex copy delete " +
+    "imag len make max min new panic print println real recover"
+  ).split(" "),
+);
+
+/** Names a Go file uses: qualified through each import's local name, and bare. */
+interface GoState {
+  qualified: Map<string, Set<string>>;
+  bare: Set<string>;
+}
+
+/**
+ * Go imports name packages, which are directories. Each import carries the names the
+ * file selects through it (`store.Open`, `store.Item`), and the file's own package,
+ * which it sees without importing, carries the bare names it uses, so the graph can
+ * link to the files in a package that declare what is used rather than to all of them.
+ */
+function extractGo(root: SyntaxNode, result: ParsedFile): void {
+  const state: GoState = { qualified: new Map(), bare: new Set() };
+  /** Local name -> the import that binds it. */
+  const locals = new Map<string, ImportRef>();
+
+  for (const decl of root.namedChildren) {
+    if (decl.type !== "import_declaration") continue;
+    const specs = decl.descendantsOfType("import_spec");
+    for (const spec of specs) {
+      const importPath = stringLiteralValue(spec.childForFieldName("path"));
+      if (!importPath) continue;
+      const alias = spec.childForFieldName("name")?.text;
+      const local = alias ?? goPackageName(importPath);
+      const ref: ImportRef = {
+        specifier: importPath,
+        kind: "go",
+        names: alias === "_" || alias === "." ? [] : [{ local, imported: "*" }],
+        line: spec.startPosition.row + 1,
+      };
+      result.imports.push(ref);
+      // A blank or dot import uses the package without naming it; it links to all of it.
+      if (alias !== "_" && alias !== ".") locals.set(local, ref);
+    }
+  }
+
+  visitGo(root, ROOT_CONTEXT, result, state);
+
+  for (const [local, ref] of locals) {
+    ref.uses = [...(state.qualified.get(local) ?? [])].sort();
+  }
+
+  const declared = new Set(result.symbols.map((s) => s.name));
+  const bare = [...state.bare]
+    .filter((name) => !declared.has(name) && !locals.has(name) && !GO_BUILTINS.has(name))
+    .sort();
+  if (bare.length > 0) {
+    result.imports.push({ specifier: ".", kind: "go", names: [], line: 1, uses: bare, implicit: true });
+  }
+}
+
+/** The receiver type of a method: `T` for both `(t T)` and `(t *T)`, generics dropped. */
+function goReceiverType(node: SyntaxNode): string | undefined {
+  const receiver = node.childForFieldName("receiver");
+  const type = receiver?.descendantsOfType("type_identifier")[0];
+  return type?.text;
+}
+
+function visitGo(node: SyntaxNode, ctx: Context, result: ParsedFile, state: GoState): void {
+  const visit: Visitor = (child, childCtx, res) => visitGo(child, childCtx, res, state);
+  const exported = (name: string) => /^[A-Z]/.test(name);
+
+  switch (node.type) {
+    case "import_declaration":
+    case "package_clause":
+      return;
+
+    case "function_declaration": {
+      const name = node.childForFieldName("name")?.text;
+      if (!name) break;
+      const symbol = recordSymbol(result, node, name, "function", { ...ctx, exported: exported(name) });
+      visitChildren(node, { ...ctx, enclosing: symbol.id, exported: false }, result, visit);
+      return;
+    }
+
+    case "method_declaration": {
+      const name = node.childForFieldName("name")?.text;
+      if (!name) break;
+      const receiver = goReceiverType(node);
+      const methodCtx: Context = {
+        classStack: receiver ? [receiver] : [],
+        enclosing: ctx.enclosing,
+        exported: exported(name),
+      };
+      const symbol = recordSymbol(result, node, name, "method", methodCtx);
+      // The receiver's type lives in this package, so it counts as a bare use.
+      if (receiver) state.bare.add(receiver);
+      visitChildren(node, { ...methodCtx, enclosing: symbol.id, exported: false }, result, visit);
+      return;
+    }
+
+    case "type_spec": {
+      const name = node.childForFieldName("name")?.text;
+      if (!name) break;
+      recordSymbol(result, node, name, "class", { ...ctx, exported: exported(name) });
+      // Field and method types inside still count as uses.
+      const type = node.childForFieldName("type");
+      if (type) visit(type, ctx, result);
+      return;
+    }
+
+    case "call_expression": {
+      const callee = node.childForFieldName("function");
+      if (callee?.type === "identifier") {
+        result.calls.push({ callee: callee.text, enclosing: ctx.enclosing, line: node.startPosition.row + 1 });
+        state.bare.add(callee.text);
+      } else if (callee?.type === "selector_expression") {
+        const field = callee.childForFieldName("field")?.text;
+        if (field) result.calls.push({ callee: field, enclosing: ctx.enclosing, line: node.startPosition.row + 1 });
+      }
+      break;
+    }
+
+    case "selector_expression": {
+      const operand = node.childForFieldName("operand");
+      const field = node.childForFieldName("field")?.text;
+      if (operand?.type === "identifier" && field) {
+        let names = state.qualified.get(operand.text);
+        if (!names) state.qualified.set(operand.text, (names = new Set()));
+        names.add(field);
+      }
+      break;
+    }
+
+    case "qualified_type": {
+      const pkg = node.childForFieldName("package")?.text;
+      const name = node.childForFieldName("name")?.text;
+      if (pkg && name) {
+        let names = state.qualified.get(pkg);
+        if (!names) state.qualified.set(pkg, (names = new Set()));
+        names.add(name);
+      }
+      return;
+    }
+
+    case "type_identifier":
+      state.bare.add(node.text);
+      return;
+  }
+
+  visitChildren(node, ctx, result, visit);
 }
