@@ -233,7 +233,18 @@ describe("analysing from the page", () => {
     return { app, fake, reposDir, post };
   }
 
-  const settle = () => new Promise((r) => setTimeout(r, 20));
+  /**
+   * Waits until the server reports the analysis finished. A fixed pause was not enough on
+   * a loaded CI runner: writing the result outlasted it, and the next request read busy.
+   */
+  const settle = async (app: { inject: (options: object) => Promise<{ json(): { analysis?: { running?: boolean } } }> }) => {
+    for (let i = 0; i < 250; i++) {
+      const status = await app.inject({ url: "/api/status", headers: LOCAL });
+      if (!status.json().analysis?.running) return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error("the analysis did not finish within 5s");
+  };
 
   it("analyses a pasted GitHub URL into its own folder and switches to it", async () => {
     const { app, fake, reposDir, post } = await page();
@@ -249,7 +260,7 @@ describe("analysing from the page", () => {
     assert.equal(busy.statusCode, 409, "a second analysis waits for the first");
 
     fake.finish();
-    await settle();
+    await settle(app);
     const graph = await app.inject({ url: "/api/graph", headers: LOCAL });
     assert.equal(graph.statusCode, 200);
     assert.equal(graph.json().source, "https://github.com/pallets/flask");
@@ -265,7 +276,7 @@ describe("analysing from the page", () => {
     const status = await app.inject({ url: "/api/status", headers: LOCAL });
     assert.ok(!status.body.includes(token), "status must not echo the token");
     fake.finish();
-    await settle();
+    await settle(app);
     await app.close();
   });
 
@@ -276,7 +287,7 @@ describe("analysing from the page", () => {
     assert.ok(!started.body.includes(token));
     assert.ok(fake.calls[0]!.target.includes(token), "the clone still gets it");
     fake.finish();
-    await settle();
+    await settle(app);
     await app.close();
   });
 
@@ -284,7 +295,7 @@ describe("analysing from the page", () => {
     const { app, fake, post } = await page();
     await post({ target: "https://github.com/pallets/flask" });
     fake.finish();
-    await settle();
+    await settle(app);
 
     const again = await post({ target: "https://github.com/pallets/flask" });
     assert.equal(again.statusCode, 200);
@@ -295,7 +306,7 @@ describe("analysing from the page", () => {
     assert.equal(forced.statusCode, 202);
     assert.equal(fake.calls.length, 2);
     fake.finish();
-    await settle();
+    await settle(app);
     await app.close();
   });
 
@@ -303,7 +314,7 @@ describe("analysing from the page", () => {
     const { app, fake, post } = await page();
     await post({ target: "https://github.com/org/missing" });
     fake.fail(new Error("Could not clone https://github.com/org/missing."));
-    await settle();
+    await settle(app);
     const status = (await app.inject({ url: "/api/status", headers: LOCAL })).json();
     assert.equal(status.analysis.running, false);
     assert.match(status.analysis.error, /Could not clone/);
@@ -335,7 +346,7 @@ describe("analysing from the page", () => {
     assert.equal(started.statusCode, 202);
     assert.equal(fake.calls[0]!.cacheDir, path.join(dir, ".synapse"));
     fake.finish();
-    await settle();
+    await settle(app);
     await app.close();
   });
 });
