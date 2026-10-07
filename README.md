@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/intro-dark.svg">
-    <img src="docs/intro-light.svg" alt="Synapse: map a codebase by what it depends on" width="100%">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/atharv1205/synapse/main/docs/intro-dark.svg">
+    <img src="https://raw.githubusercontent.com/atharv1205/synapse/main/docs/intro-light.svg" alt="Synapse: map a codebase by what it depends on" width="100%">
   </picture>
 </p>
 
@@ -12,7 +12,7 @@ and retrieval are local, and summaries and answers come from a local model throu
 Ollama unless you choose Gemini or Claude. It reads JavaScript, TypeScript, Python, Java
 and Go.
 
-![synapse-map on pallets/flask: the terminal run ranks the files, then the explorer narrows to the important ones, opens a file, answers a question with cited sources and flies to one, and switches to the folder view to open a folder](docs/demo.gif)
+![synapse-map on pallets/flask: the terminal run ranks the files, then the explorer narrows to the important ones, opens a file, answers a question with cited sources and flies to one, and switches to the folder view to open a folder](https://raw.githubusercontent.com/atharv1205/synapse/main/docs/demo.gif)
 
 <sub>Recorded from a real run of the packaged CLI on pallets/flask with a local model
 (qwen2.5:14b-instruct through Ollama). The terminal replays that run's output with its
@@ -475,12 +475,12 @@ deliberate step.
 
 ## Contributing
 
-Bug reports, ideas and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md)
+Bug reports, ideas and pull requests are welcome. [CONTRIBUTING.md](https://github.com/atharv1205/synapse/blob/main/CONTRIBUTING.md)
 covers setting up, running the tests and adding a language; please also read the
-[code of conduct](CODE_OF_CONDUCT.md). Report security problems privately, as described
-in [SECURITY.md](SECURITY.md).
+[code of conduct](https://github.com/atharv1205/synapse/blob/main/CODE_OF_CONDUCT.md). Report security problems privately, as described
+in [SECURITY.md](https://github.com/atharv1205/synapse/blob/main/SECURITY.md).
 
 ## License
 
-MIT, see [LICENSE](LICENSE). The package also ships `THIRD_PARTY_NOTICES.md` for the
+MIT, see [LICENSE](https://github.com/atharv1205/synapse/blob/main/LICENSE). The package also ships `THIRD_PARTY_NOTICES.md` for the
 libraries and fonts bundled into the web app.
