@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --build",
-    "test": "node --test dist/test/"
+    "test": "node --test dist/test/*.test.js"
   },
   "bin": {
     "synapse": "./dist/src/index.js"

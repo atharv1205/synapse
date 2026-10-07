@@ -10,7 +10,7 @@
     "build": "tsc -b && vite build && node scripts/compress.mjs",
     "preview": "vite preview",
     "sample-graph": "node scripts/sample-graph.mjs",
-    "test": "tsc -p tsconfig.test.json && node --test .test-dist/test/"
+    "test": "tsc -p tsconfig.test.json && node --test .test-dist/test/*.test.js"
   },
   "dependencies": {
     "@fontsource-variable/geologica": "^5.3.0",
