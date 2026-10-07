@@ -53,7 +53,8 @@ public class App extends Base implements Runnable {
     const wildcard = parsed.imports.find((i) => i.specifier === "com.acme.model.*");
     const own = parsed.imports.find((i) => i.implicit);
     assert.equal(own?.specifier, "com.acme.app.*");
-    // Imported by name, or declared here, needs no package; Item, Base and Helper do.
+    // Imported by name or declared here means no package needed. Item, Base and Helper do
+    // need one.
     for (const uses of [wildcard?.uses, own?.uses]) {
       assert.ok(uses, "carries uses");
       assert.ok(uses.includes("Item") && uses.includes("Base") && uses.includes("Helper"), String(uses));
@@ -135,7 +136,7 @@ func helper() {}
     const bySpecifier = new Map(parsed.imports.map((i) => [i.specifier, i]));
     assert.deepEqual(bySpecifier.get("fmt")?.names, [{ local: "fmt", imported: "*" }]);
     assert.deepEqual(bySpecifier.get("github.com/acme/app/internal/store")?.names, [{ local: "st", imported: "*" }]);
-    // A major-version suffix is not the package name.
+    // A major version suffix isn't the package name.
     assert.deepEqual(bySpecifier.get("github.com/acme/app/internal/config/v2")?.names, [
       { local: "config", imported: "*" },
     ]);
@@ -177,7 +178,7 @@ func helper() {}
   });
 });
 
-/** A small Maven-layout Java project and a Go module, side by side. */
+/** A small Maven-style Java project and a Go module side by side. */
 const PROJECT: Record<string, string> = {
   "java/src/main/java/com/acme/app/App.java": `package com.acme.app;
 import com.acme.store.Store;
@@ -281,7 +282,7 @@ describe("analyze — Java and Go project", () => {
 
   it("counts the standard library as external, but not a package's own references", () => {
     assert.equal(graph.stats.parseFailures, 0);
-    // fmt in main.go; same-package references never count, matched or not.
+    // Just fmt in main.go. Same-package references never count, matched or not.
     assert.equal(graph.stats.externalImports, 1);
   });
 });

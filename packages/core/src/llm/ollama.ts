@@ -1,9 +1,9 @@
 import type { JsonSchema, LlmProvider, Preflight } from "./types.js";
 export const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 /**
- * Qwen2.5-Coder, the project spec's choice: trained on code, which is what every prompt
- * here is about. Any pulled chat model works through --model; qwen2.5:14b-instruct was
- * the default until this one.
+ * Qwen2.5-Coder, as the spec asked for. It's trained on code, which is what all our
+ * prompts are about. Any pulled chat model works with --model; qwen2.5:14b-instruct used
+ * to be the default.
  */
 export const DEFAULT_MODEL = "qwen2.5-coder:14b";
 export const DEFAULT_EMBED_MODEL = "nomic-embed-text";
@@ -11,7 +11,7 @@ export const DEFAULT_EMBED_MODEL = "nomic-embed-text";
 export interface OllamaConfig {
   baseUrl?: string;
   model?: string;
-  /** Per-request timeout. Local models on cold start can be slow, hence the generous default. */
+  /** Per-request timeout. Local models can be slow on a cold start, so it's generous. */
   timeoutMs?: number;
 }
 
@@ -24,19 +24,19 @@ interface GenerateResponse {
 }
 
 /**
- * A thin client over Ollama's local HTTP API. Uses the built-in fetch, so it adds
- * no dependency, and never throws for "Ollama isn't set up" — that is a Preflight
- * result the caller can report and continue past.
+ * Small client for Ollama's local HTTP API. Uses built-in fetch so no extra dependency.
+ * "Ollama isn't set up" never throws; it comes back as a Preflight result the caller can
+ * report and move past.
  */
 export class OllamaClient implements LlmProvider {
   readonly name = "ollama" as const;
   readonly baseUrl: string;
   readonly model: string;
-  /** Ollama serves embedding models, so this provider can do both halves. */
+  /** Ollama serves embedding models too, so this provider does both. */
   readonly supportsEmbeddings = true;
   private readonly timeoutMs: number;
 
-  /** Same as `baseUrl`; part of the LlmProvider surface. */
+  /** Same as `baseUrl`. Part of the LlmProvider interface. */
   get endpoint(): string {
     return this.baseUrl;
   }
@@ -47,7 +47,7 @@ export class OllamaClient implements LlmProvider {
     this.timeoutMs = config.timeoutMs ?? 120_000;
   }
 
-  /** Model tags as Ollama reports them, e.g. `qwen2.5:14b-instruct`. */
+  /** Model tags as Ollama lists them, e.g. `qwen2.5:14b-instruct`. */
   async listModels(): Promise<string[]> {
     const response = await fetch(`${this.baseUrl}/api/tags`, {
       signal: AbortSignal.timeout(10_000),
@@ -59,8 +59,8 @@ export class OllamaClient implements LlmProvider {
   }
 
   /**
-   * Ollama tags are `name:tag`. A user who asks for `qwen2.5-coder` should match the
-   * pulled `qwen2.5-coder:latest`, so compare the bare name too when none was given.
+   * Ollama tags look like `name:tag`. Asking for `qwen2.5-coder` should match
+   * `qwen2.5-coder:latest`, so if no tag was given we compare the bare name too.
    */
   private static matches(tag: string, requested: string): boolean {
     if (tag === requested) return true;
@@ -69,11 +69,11 @@ export class OllamaClient implements LlmProvider {
   }
 
   /**
-   * Checks that Ollama is up and the model is pulled. Returns remediation rather than
-   * throwing, because a missing model must not take down the whole analyse run.
+   * Check Ollama is up and the model is pulled. Returns what to do instead of throwing,
+   * because a missing model shouldn't kill the whole analyse run.
    *
-   * Takes an explicit model so the same client can vet both the chat model and the
-   * embedding model without a second client.
+   * Takes the model as a parameter so one client can check both the chat model and the
+   * embedding model.
    */
   async preflight(model: string = this.model): Promise<Preflight> {
     let tags: string[];
@@ -104,13 +104,12 @@ export class OllamaClient implements LlmProvider {
   }
 
   /**
-   * Embeds a batch of texts. Prefers the batch /api/embed endpoint and falls back to
-   * the older one-at-a-time /api/embeddings for servers that predate it.
+   * Embed a batch of texts. Uses the batch /api/embed endpoint, and falls back to the
+   * older one-at-a-time /api/embeddings on servers that don't have it.
    *
-   * Ollama starts a runner per model and only enables embeddings for models that
-   * support them, so asking a chat model to embed fails with a llama.cpp-level error.
-   * That case gets its own remediation, because "pull an embedding model" is the fix
-   * and the raw error does not say so.
+   * Ollama only turns on embeddings for models that support them, so asking a chat model
+   * to embed fails with some low-level llama.cpp error. We catch that and say "pull an
+   * embedding model", since the raw error doesn't.
    */
   async embed(texts: string[], model: string): Promise<number[][]> {
     if (texts.length === 0) return [];
@@ -131,7 +130,7 @@ export class OllamaClient implements LlmProvider {
       signal: AbortSignal.timeout(this.timeoutMs),
     });
 
-    // A server without /api/embed at all: fall back rather than fail.
+    // Old server with no /api/embed, use the fallback instead of failing.
     if (response.status === 404) return undefined;
 
     const body = (await response.json()) as { embeddings?: number[][]; error?: string };
@@ -158,7 +157,7 @@ export class OllamaClient implements LlmProvider {
     return body.embedding;
   }
 
-  /** Runs one non-streaming generation and returns the raw text, for prose answers. */
+  /** One non-streaming generation, returns the raw text. Used for prose answers. */
   async generateText(prompt: string, options: { maxTokens?: number } = {}): Promise<string> {
     const response = await fetch(`${this.baseUrl}/api/generate`, {
       method: "POST",
@@ -185,9 +184,9 @@ export class OllamaClient implements LlmProvider {
   }
 
   /**
-   * Runs one non-streaming generation constrained to `schema`. Ollama honours JSON
-   * Schema in `format`, but we still parse defensively: a model can emit the object
-   * wrapped in prose or a fenced block, and one malformed file should not abort the run.
+   * One non-streaming generation constrained to `schema`. Ollama supports JSON Schema in
+   * `format`, but we still parse loosely: models sometimes wrap the object in prose or a
+   * code fence, and one bad file shouldn't stop the run.
    */
   async generateJson<T>(prompt: string, schema: JsonSchema): Promise<T> {
     const response = await fetch(`${this.baseUrl}/api/generate`, {
@@ -198,7 +197,7 @@ export class OllamaClient implements LlmProvider {
         prompt,
         stream: false,
         format: schema,
-        // Low temperature: these are descriptions of real code, not creative writing.
+        // Low temperature: we're describing real code, not writing fiction.
         options: { temperature: 0.1, num_predict: 600 },
       }),
       signal: AbortSignal.timeout(this.timeoutMs),
@@ -218,9 +217,9 @@ export class OllamaClient implements LlmProvider {
 }
 
 /**
- * Turns Ollama's embedding errors into something actionable. A server that reports it
- * "does not support embeddings" is running a generation-only model, and the fix is to
- * use a model built for embeddings — not to restart anything.
+ * Make Ollama's embedding errors actionable. "does not support embeddings" means a
+ * generation-only model is running and you need an embedding model. Restarting won't
+ * help.
  */
 export function embeddingError(raw: string, model: string): Error {
   if (/does not support embeddings/i.test(raw)) {
@@ -233,14 +232,14 @@ export function embeddingError(raw: string, model: string): Error {
   return new Error(`Ollama embedding error: ${raw}`);
 }
 
-/** Parses JSON that may be wrapped in a fenced block or surrounded by stray prose. */
+/** Parse JSON that might be inside a code fence or surrounded by extra text. */
 export function parseJsonLoosely<T>(text: string): T {
   const trimmed = text.trim();
 
   try {
     return JSON.parse(trimmed) as T;
   } catch {
-    // Fall through to extraction below.
+    // Fall through to the extraction below.
   }
 
   const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(trimmed);

@@ -3,8 +3,8 @@ import path from "node:path";
 import ignoreFactory, { type Ignore } from "ignore";
 import type { Language, SourceFile } from "../types.js";
 
-// `ignore` is CJS with a namespace-merged default export, which NodeNext resolves to the
-// module object rather than the callable factory it actually is at runtime. Re-type it.
+// `ignore` is CJS with a namespace-merged default export. NodeNext gives us the module
+// object instead of the factory function it really is, so re-type it.
 const createIgnore = ignoreFactory as unknown as () => Ignore;
 
 const EXTENSION_LANGUAGE: Record<string, Language> = {
@@ -22,7 +22,7 @@ const EXTENSION_LANGUAGE: Record<string, Language> = {
   ".go": "go",
 };
 
-/** Directories skipped regardless of .gitignore, because they never hold first-party source. */
+/** Folders we always skip, .gitignore or not. They never hold first-party code. */
 const ALWAYS_SKIP = new Set([
   ".git",
   "node_modules",
@@ -34,22 +34,22 @@ const ALWAYS_SKIP = new Set([
   ".next",
   ".turbo",
   "site-packages",
-  // Go's vendored dependencies, and the build output of Maven, Gradle and Go tooling.
+  // Go's vendored deps, plus build output from Maven, Gradle and Go tooling.
   "vendor",
   "target",
   ".gradle",
 ]);
 
-/** Skip anything larger than this; minified bundles blow up the parser for no benefit. */
+/** Skip anything bigger than this. Minified bundles just choke the parser for nothing. */
 const MAX_FILE_BYTES = 1_500_000;
 
 export function languageForPath(filePath: string): Language | undefined {
   return EXTENSION_LANGUAGE[path.extname(filePath).toLowerCase()];
 }
 
-/** A .gitignore file plus the directory its patterns are relative to. */
+/** A .gitignore and the folder its patterns are relative to. */
 interface IgnoreLayer {
-  /** Directory the patterns anchor to, relative to the repo root, POSIX-separated. */
+  /** Folder the patterns are relative to, repo-relative, forward slashes. */
   base: string;
   matcher: Ignore;
 }
@@ -64,15 +64,14 @@ async function loadIgnoreLayer(dirAbs: string, baseRel: string): Promise<IgnoreL
 }
 
 /**
- * True when any .gitignore in scope ignores `relPath`. Each layer tests the path
- * relative to the directory that layer's .gitignore lives in, which is how git
- * itself scopes nested ignore files.
+ * True if any .gitignore in scope ignores `relPath`. Each layer checks the path relative
+ * to its own .gitignore's folder, which is how git handles nested ignore files too.
  */
 function isIgnored(layers: IgnoreLayer[], relPath: string, isDir: boolean): boolean {
   for (const layer of layers) {
     const scoped = layer.base === "" ? relPath : relPath.slice(layer.base.length + 1);
     if (scoped === "" || scoped.startsWith("..")) continue;
-    // `ignore` needs the trailing slash to apply directory-only patterns (`foo/`).
+    // `ignore` needs the trailing slash for folder-only patterns (`foo/`).
     if (layer.matcher.ignores(isDir ? `${scoped}/` : scoped)) return true;
   }
   return false;
@@ -81,15 +80,15 @@ function isIgnored(layers: IgnoreLayer[], relPath: string, isDir: boolean): bool
 export interface WalkResult {
   files: SourceFile[];
   /**
-   * Repo-relative paths of every package.json and go.mod found, used to resolve imports
-   * of workspace packages and Go modules to files in the repository.
+   * Every package.json and go.mod we found (repo-relative). Used to resolve imports of
+   * workspace packages and Go modules to files in the repo.
    */
   manifests: string[];
 }
 
 /**
- * Recursively list every parseable source file under `root`, honouring .gitignore
- * files at every level. Returns paths relative to `root`, sorted for stable output.
+ * Recursively list every source file we can parse under `root`, respecting .gitignore at
+ * every level. Paths are relative to `root` and sorted so the output is stable.
  */
 export async function walkSourceFiles(root: string): Promise<WalkResult> {
   const found: SourceFile[] = [];
@@ -104,7 +103,7 @@ export async function walkSourceFiles(root: string): Promise<WalkResult> {
     try {
       entries = await readdir(dirAbs, { withFileTypes: true });
     } catch {
-      return; // unreadable directory (permissions, race) — skip rather than abort the walk
+      return; // can't read this folder (permissions, race), skip it and keep going
     }
 
     for (const entry of entries) {
@@ -112,7 +111,7 @@ export async function walkSourceFiles(root: string): Promise<WalkResult> {
 
       const childRel = dirRel === "" ? entry.name : `${dirRel}/${entry.name}`;
 
-      if (entry.isSymbolicLink()) continue; // avoid cycles and escaping the repo root
+      if (entry.isSymbolicLink()) continue; // skip symlinks: avoids loops and leaving the repo
 
       if (entry.isDirectory()) {
         if (isIgnored(layers, childRel, true)) continue;

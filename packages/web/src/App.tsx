@@ -15,24 +15,23 @@ import { useProviderChoice } from "./components/ProviderSwitch";
 import "./styles/app.css";
 
 /**
- * How many files the view aims to show prominently on load, so a large repo opens on
- * its important files rather than a hairball. Everything is still rendered and still
- * clickable — the cutoff only fades.
+ * Roughly how many files we highlight on load, so a big repo opens on its important files
+ * instead of a hairball. Everything is still drawn and clickable; the rest just fade.
  */
 const PROMINENT_TARGET = 300;
 
 /**
- * Above this many files the explorer opens on folders rather than files: a few dozen
- * bubbles instead of thousands of dots. Below it the files themselves are readable.
+ * Above this many files we open on folders instead: a few dozen bubbles instead of
+ * thousands of dots. Below it the files themselves are readable.
  */
 const FOLDERS_ABOVE = 400;
 
 export type ViewMode = "files" | "folders";
 
 /**
- * How much of the scene's right edge the panel column covers on wide screens: its 380px
- * width, its 16px inset, and 16px of air. Matches .panels in styles/app.css, which
- * stacks the panels under the scene instead at 860px and below.
+ * How much of the scene's right side the panels cover on wide screens: 380px wide, 16px
+ * inset, plus 16px of breathing room. Matches .panels in styles/app.css, which moves the
+ * panels under the scene at 860px and below.
  */
 const PANEL_COLUMN = 380 + 16 + 16;
 const PANELS_OVERLAY = "(min-width: 861px)";
@@ -48,7 +47,7 @@ function useMediaQuery(query: string): boolean {
   return matches;
 }
 
-/** How often to re-poll status while waiting for a graph to appear. */
+/** How often to poll status while we wait for a graph. */
 const POLL_MS = 2500;
 
 export function App() {
@@ -64,7 +63,7 @@ export function App() {
 
   const [topPercent, setTopPercent] = useState(100);
   const [viewMode, setViewMode] = useState<ViewMode>("files");
-  // Cluster indices showing their files rather than a bubble, in the folders view.
+  // In the folders view, the clusters showing their files instead of a bubble.
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
   const [selectedCluster, setSelectedCluster] = useState<number | undefined>();
   const [focusCluster, setFocusCluster] = useState<Cluster | undefined>();
@@ -72,8 +71,8 @@ export function App() {
   const [indexing, setIndexing] = useState(false);
   const [indexMessage, setIndexMessage] = useState<string | undefined>();
   const panelsOverlay = useMediaQuery(PANELS_OVERLAY);
-  // Who answers questions and rebuilds the index. Until the viewer picks, the provider
-  // `serve` was started with applies; the choice is remembered in this browser.
+  // Who answers questions and rebuilds the index. Until the user picks one we use
+  // whatever `serve` started with, and their pick is remembered in this browser.
   const [choice, choose] = useProviderChoice();
   const provider = choice ?? status?.defaultProvider;
 
@@ -94,7 +93,7 @@ export function App() {
     document.title = status ? `${repoNameOf(status.root)}: Synapse` : "Synapse";
   }, [status]);
 
-  // Poll only while there is no graph yet — once it exists there is nothing to wait for.
+  // Only poll while there's no graph. Once we have one there's nothing to wait for.
   useEffect(() => {
     if (status?.graph.exists || statusError) return;
     const timer = setInterval(() => void refreshStatus(), POLL_MS);
@@ -112,25 +111,25 @@ export function App() {
     })();
   }, [status?.graph.exists, graph]);
 
-  // The layout is expensive and deterministic, so it runs once per graph, off the main thread.
+  // Layout is slow but deterministic, so it runs once per graph in a worker.
   const { layout, progress: layoutProgress, error: layoutError } = useLayout(graph);
 
-  /** Importance of every node, descending — the rank ladder the slider indexes into. */
+  /** Every node's importance, highest first. The slider picks a position in this list. */
   const ranked = useMemo(
     () => (layout ? layout.nodes.map((n) => n.node.importance).sort((a, b) => b - a) : []),
     [layout],
   );
 
-  /** How many files the current percentile keeps prominent; always at least one. */
+  /** How many files the current percentile highlights. Always at least one. */
   const visibleCount = useMemo(
     () => (ranked.length === 0 ? 0 : Math.max(1, Math.round((ranked.length * topPercent) / 100))),
     [ranked, topPercent],
   );
 
   /**
-   * The importance cutoff the scene filters on, read off the rank ladder. Deriving it
-   * from rank rather than exposing it directly is what makes the control usable: the
-   * raw values bunch up near zero, but their ordering is evenly spread by definition.
+   * The importance cutoff the scene filters on, read from the ranked list. Going by rank
+   * instead of raw value is what makes the slider usable: the raw values all bunch up
+   * near zero, but ranks are evenly spread by definition.
    */
   const threshold = useMemo(
     () => (visibleCount === 0 ? 0 : (ranked[visibleCount - 1] ?? 0)),
@@ -148,7 +147,7 @@ export function App() {
     [layout],
   );
 
-  // Big repositories open on folders; each new graph starts with every folder collapsed.
+  // Big repos open on folders, and every new graph starts with all folders collapsed.
   useEffect(() => {
     if (!layout) return;
     setViewMode(layout.nodes.length > FOLDERS_ABOVE ? "folders" : "files");
@@ -158,7 +157,7 @@ export function App() {
 
   const folders = viewMode === "folders" && clustering !== undefined;
 
-  /** Per node index, 1 for files inside a collapsed folder. */
+  /** Per node index: 1 if the file is inside a collapsed folder. */
   const hidden = useMemo(() => {
     if (!folders || !clustering) return undefined;
     const mask = new Uint8Array(clustering.clusterOf.length);
@@ -182,7 +181,8 @@ export function App() {
       onSelect: (cluster: number) => {
         setSelected(undefined);
         setSelectedCluster(cluster);
-        // A fresh object each time, so clicking a folder flown away from flies back.
+        // New object every time, so clicking a folder you've moved away from flies back
+        // to it.
         const target = clustering.clusters[cluster];
         setFocusCluster(target && { ...target });
       },
@@ -198,7 +198,7 @@ export function App() {
     });
   }, []);
 
-  /** Makes a file visible in the folders view by expanding the folder it is in. */
+  /** Show a file in the folders view by opening the folder it's in. */
   const reveal = useCallback(
     (index: number) => {
       const cluster = clustering?.clusterOf[index];
@@ -208,7 +208,7 @@ export function App() {
     [clustering],
   );
 
-  // Open on roughly PROMINENT_TARGET files, whatever the graph's size.
+  // Open on roughly PROMINENT_TARGET files, however big the graph is.
   useEffect(() => {
     if (!layout) return;
     const count = layout.nodes.length;
@@ -228,7 +228,7 @@ export function App() {
 
   const handleSelect = useCallback(
     (index: number) => {
-      // -1 is the scene's signal that empty space was clicked.
+      // -1 means the user clicked empty space.
       if (index < 0) {
         setSelected(undefined);
         setSelectedCluster(undefined);
@@ -245,7 +245,7 @@ export function App() {
     (path: string) => {
       const index = indexByPath.get(path);
       if (index === undefined) return;
-      // A cited file may sit inside a collapsed folder; open the folder so it can be seen.
+      // A cited file might be inside a collapsed folder, so open the folder.
       reveal(index);
       setSelectedCluster(undefined);
       setSelected(index);
@@ -359,8 +359,8 @@ export function App() {
           focusCluster={focusCluster}
         />
 
-        {/* Inside the scene so the panels sit against the canvas regardless of how
-            tall the toolbar and any status banner above it happen to be. */}
+        {/* Inside the scene so the panels line up with the canvas, however tall the
+            toolbar and banners above it are. */}
         <div className="panels">
           {clustering && selectedCluster !== undefined && clustering.clusters[selectedCluster] && (
             <ClusterDetails

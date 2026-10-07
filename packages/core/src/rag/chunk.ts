@@ -5,22 +5,22 @@ import { signatureOf } from "../summarize/prompt.js";
 import type { FileNode, FunctionNode, RepoGraph } from "../types.js";
 import { functionIndex, functionsOf } from "../graph/lookup.js";
 
-/** One retrievable unit: the text that gets embedded, plus what it points back at. */
+/** One thing we can retrieve: the text we embed, plus what it points back to. */
 export interface Chunk {
-  /** Stable id: `file:<path>` or `fn:<function id>`. */
+  /** Stable id, `file:<path>` or `fn:<function id>`. */
   id: string;
   kind: "file" | "function";
-  /** Owning file, for citing sources. */
+  /** File it belongs to, for citing. */
   path: string;
   /** Qualified function name, for function chunks. */
   ref?: string;
-  /** Line the chunk's subject starts on, for citing sources. */
+  /** Line where the thing starts, for citing. */
   startLine?: number;
   /** File importance, used to break ties between equally similar chunks. */
   importance: number;
-  /** The text that is embedded and later shown to the answering model. */
+  /** The text we embed and later show to the answering model. */
   text: string;
-  /** SHA-256 of `text`; the cache key, mirroring how summaries are keyed. */
+  /** SHA-256 of `text`. It's the cache key, same idea as for summaries. */
   hash: string;
 }
 
@@ -33,8 +33,8 @@ function finish(chunk: Omit<Chunk, "hash">): Chunk {
 }
 
 /**
- * A file chunk: what the file is, what it declares, and why the graph thinks it
- * matters. This is the coarse level, for questions like "where does X live".
+ * File chunk: what the file is, what it declares, and why the graph thinks it matters.
+ * The coarse level, good for "where does X live" questions.
  */
 function fileChunk(node: FileNode, declarations: FunctionNode[]): Chunk {
   const { metrics } = node;
@@ -71,8 +71,8 @@ function fileChunk(node: FileNode, declarations: FunctionNode[]): Chunk {
 }
 
 /**
- * A function chunk: one per individually-summarised function, carrying its signature
- * and what it calls. This is the fine level, for questions about specific behaviour.
+ * Function chunk: one per function that got its own summary, with its signature and what
+ * it calls. The fine level, for questions about specific behaviour.
  */
 function functionChunk(
   node: FileNode,
@@ -107,12 +107,12 @@ function functionChunk(
 }
 
 /**
- * Builds the chunk set for a graph: one chunk per file, plus one per function that
- * carries its own summary.
+ * Build all the chunks for a graph: one per file, plus one for each function that has its
+ * own summary.
  *
- * `root` is used to recover real signatures from source. When a file cannot be read —
- * the repo moved, or this is a graph.json from a clone that no longer exists — the
- * signature falls back to what the graph already knows, so indexing still works.
+ * `root` lets us read real signatures from the source. If a file can't be read (repo
+ * moved, or the graph.json came from a clone that's gone) we use what the graph already
+ * knows, so indexing still works.
  */
 export async function buildChunks(graph: RepoGraph, root?: string): Promise<Chunk[]> {
   const outgoing = new Map<string, string[]>();
@@ -141,7 +141,7 @@ export async function buildChunks(graph: RepoGraph, root?: string): Promise<Chun
       try {
         lines = (await readFile(path.join(root, node.path), "utf8")).split("\n");
       } catch {
-        // Unreadable source just means no real signature for this file.
+        // Can't read the source, so no real signatures for this file. That's fine.
       }
     }
 

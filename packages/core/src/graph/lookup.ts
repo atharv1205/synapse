@@ -1,17 +1,17 @@
 import type { FileNode, FunctionNode, RepoGraph } from "../types.js";
 
 /**
- * Indexes the canonical declaration list by id.
+ * Index the declaration list by id.
  *
- * `FileNode.functions` stores ids rather than copies, so anything that needs the
- * declarations themselves resolves them through here. Build the index once and reuse
- * it; resolving each file by scanning the list would be quadratic.
+ * `FileNode.functions` only stores ids, so anything that needs the actual declarations
+ * goes through here. Build it once and reuse it; scanning the list for every file would
+ * be quadratic.
  */
 export function functionIndex(graph: RepoGraph): Map<string, FunctionNode> {
   return new Map(graph.functionNodes.map((fn) => [fn.id, fn]));
 }
 
-/** Resolves one file's declarations, skipping any id with no matching node. */
+/** One file's declarations. Ids with no matching node are skipped. */
 export function functionsOf(
   node: FileNode,
   index: Map<string, FunctionNode>,
@@ -24,7 +24,7 @@ export function functionsOf(
   return out;
 }
 
-/** Convenience for one-off lookups where building an index would be overkill. */
+/** Shortcut for one-off lookups where building an index isn't worth it. */
 export function resolveFunctions(graph: RepoGraph, node: FileNode): FunctionNode[] {
   return functionsOf(node, functionIndex(graph));
 }

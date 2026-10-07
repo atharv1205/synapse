@@ -2,16 +2,16 @@ import { simpleGit } from "simple-git";
 import type { RepositoryInfo } from "../types.js";
 import { redactSecret } from "./source.js";
 
-/** owner/name of a GitHub repository. */
+/** owner/name of a GitHub repo. */
 export interface GitHubRepo {
   owner: string;
   name: string;
 }
 
 /**
- * Reads owner/name from any form of GitHub remote: https (with or without a credential
- * or `.git`), `git@github.com:owner/name.git`, and `ssh://git@github.com/owner/name`.
- * Anything not on github.com is undefined.
+ * Get owner/name out of any kind of GitHub remote: https (with or without a credential or
+ * `.git`), `git@github.com:owner/name.git`, or `ssh://git@github.com/owner/name`. Returns
+ * undefined for anything that isn't github.com.
  */
 export function parseGitHubRepo(remote: string): GitHubRepo | undefined {
   const trimmed = remote.trim();
@@ -30,9 +30,9 @@ export function parseGitHubRepo(remote: string): GitHubRepo | undefined {
 }
 
 /**
- * The GitHub repository a local folder was cloned from, read from its `origin` remote.
- * Undefined for a folder that is not a git repository, has no origin, or is not on
- * GitHub. Any credential in the remote URL is never returned; only owner and name are.
+ * The GitHub repo a local folder was cloned from, based on its `origin` remote. Undefined
+ * if it's not a git repo, has no origin, or isn't on GitHub. We only ever return owner
+ * and name, never a credential from the URL.
  */
 export async function gitHubRepoOf(root: string): Promise<GitHubRepo | undefined> {
   try {
@@ -44,14 +44,14 @@ export async function gitHubRepoOf(root: string): Promise<GitHubRepo | undefined
 }
 
 export interface FetchRepositoryOptions {
-  /** For a private repository: the same token used to clone it. Sent only to GitHub. */
+  /** For private repos: the same token used for the clone. Only ever sent to GitHub. */
   token?: string;
-  /** Replaces global fetch, for tests. */
+  /** Swap out global fetch (for tests). */
   fetch?: typeof fetch;
   timeoutMs?: number;
 }
 
-/** Either the details, or why they could not be had. Never throws. */
+/** Either the details or the reason we couldn't get them. Doesn't throw. */
 export type RepositoryLookup = { ok: true; info: RepositoryInfo } | { ok: false; reason: string };
 
 interface GitHubRepoResponse {
@@ -71,12 +71,12 @@ interface GitHubRepoResponse {
 }
 
 /**
- * Asks GitHub's REST API for a repository's description, stars, language and the like.
+ * Ask GitHub's REST API for a repo's description, stars, language etc.
  *
- * This is decoration on a graph that stands without it, so it never fails the analysis:
- * a network error, a private repository without a token, or the unauthenticated rate
- * limit of 60 requests an hour all come back as a reason the caller can mention and move
- * past. The token, when there is one, appears in no message.
+ * This is just extra info on top of the graph, so it never fails the analysis. Network
+ * errors, a private repo with no token, or hitting the 60/hour unauthenticated limit all
+ * come back as a reason the caller can mention and move on. The token never shows up in
+ * any message.
  */
 export async function fetchRepositoryInfo(
   repo: GitHubRepo,

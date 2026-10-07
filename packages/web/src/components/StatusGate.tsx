@@ -2,19 +2,19 @@ import { PROVIDER_LABELS, type ProviderName, type Status } from "../api";
 import { Link } from "../router";
 
 export interface StatusGateProps {
-  /** Undefined while the first /api/status call is still in flight. */
+  /** Undefined while the first /api/status call is still loading. */
   status?: Status;
   error?: string;
   onRetry(): void;
 }
 
 /**
- * The pre-render states. Everything shown here comes from /api/status, which is itself
- * just core's preflight output — so the remediation text the browser shows is the same
- * text the CLI prints, rather than a second set of wordings to keep in step.
+ * The screens before the graph shows up. Everything here comes from /api/status, which is
+ * just core's preflight output, so the browser shows the exact same fix-it text the CLI
+ * prints. No second set of wording to keep in sync.
  *
- * Returns undefined once the graph exists, meaning the scene can take over. Missing
- * embeddings deliberately do not gate: the graph is worth exploring without Q&A.
+ * Returns undefined once there's a graph, so the scene takes over. Missing embeddings
+ * don't block on purpose: the graph is still worth exploring without Q&A.
  */
 export function StatusGate({ status, error, onRetry }: StatusGateProps): JSX.Element | undefined {
   if (error) {
@@ -37,7 +37,7 @@ export function StatusGate({ status, error, onRetry }: StatusGateProps): JSX.Ele
   }
 
   if (!status.graph.exists) {
-    // An analysis that died leaves no graph and never will, so say so rather than spin.
+    // If the analysis died there's no graph coming, so say that instead of spinning.
     if (status.analysis.error) {
       return (
         <Splash title="The analysis failed">
@@ -86,16 +86,17 @@ export function StatusGate({ status, error, onRetry }: StatusGateProps): JSX.Ele
 }
 
 /**
- * A non-blocking banner for conditions the scene can render alongside. It describes the
- * provider the viewer has selected, not Ollama in general: with Gemini selected and
- * working, a stopped Ollama is not a problem worth a red banner.
+ * A banner for problems the scene can still render with. It's about the provider the user
+ * picked, not Ollama in general: with Gemini picked and working, a stopped Ollama isn't
+ * worth a red banner.
  */
 export function StatusBanner({ status }: { status: Status }): JSX.Element | undefined {
   const label = PROVIDER_LABELS[status.provider.chat as ProviderName] ?? status.provider.chat;
   const problems = [status.chatModel, status.embedModel]
     .filter((m) => !m.available && m.message)
     .map((m) => m.message!);
-  // Chat and embeddings often fail for the same reason (Ollama is down); say it once.
+  // Chat and embeddings usually fail for the same reason (Ollama is down), so only say it
+  // once.
   const unique = [...new Set(problems)];
 
   if (unique.length > 0) {

@@ -15,7 +15,7 @@ const TOKEN = "ghp_cliTestToken0123456789";
 
 describe("serve's target", () => {
   it("keeps a GitHub URL a URL instead of resolving it as a path", () => {
-    // The bug: path.resolve turned this into <cwd>/https:/github.com/pallets/flask.
+    // The old bug: path.resolve turned this into <cwd>/https:/github.com/pallets/flask.
     const target = serveTarget("https://github.com/pallets/flask", undefined, "/work");
     assert.equal(target.root, "https://github.com/pallets/flask");
     assert.equal(target.cloneTarget, "https://github.com/pallets/flask");

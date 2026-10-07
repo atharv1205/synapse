@@ -1,11 +1,11 @@
 /**
- * Folder clusters for large repositories.
+ * Folder clusters for big repos.
  *
- * Deliberately free of React and three.js, and of value imports from the rest of the app,
- * so it can be unit-tested with Node directly.
+ * No React, no three.js and no value imports from the rest of the app, so Node can
+ * unit-test it directly.
  */
 
-/** The slice of a positioned node clustering needs. */
+/** The bits of a positioned node that clustering needs. */
 export interface ClusterInput {
   index: number;
   path: string;
@@ -16,44 +16,44 @@ export interface ClusterInput {
 }
 
 export interface Cluster {
-  /** The folder path, or `folder/+N` for an overflow group of folders. */
+  /** Folder path, or `folder/+N` for an overflow group of folders. */
   id: string;
-  /** What to show on the map. */
+  /** Text shown on the map. */
   label: string;
-  /** The folder the cluster stands for. Overflow groups name their parent folder. */
+  /** The folder this cluster stands for. Overflow groups use their parent folder. */
   folder: string;
   /** Node indices of its files. */
   members: number[];
-  /** How many folders an overflow group folded together; 0 for an ordinary cluster. */
+  /** How many folders an overflow group merged. 0 for a normal cluster. */
   folded: number;
-  /** Importance of its most important file, which colours the bubble. */
+  /** Importance of its top file. This colours the bubble. */
   importance: number;
-  /** Centroid of its files' positions in the layout. */
+  /** Centre of its files' positions in the layout. */
   x: number;
   y: number;
   z: number;
-  /** How far its files spread from the centroid (90th percentile), for framing it. */
+  /** How far its files spread from the centre (90th percentile), for framing. */
   spread: number;
 }
 
 export interface ClusterEdge {
   from: number;
   to: number;
-  /** How many file-level imports run between the two clusters. */
+  /** How many file imports go between the two clusters. */
   weight: number;
 }
 
 export interface Clustering {
   clusters: Cluster[];
   edges: ClusterEdge[];
-  /** For each node index, the index of its cluster. */
+  /** Node index -> cluster index. */
   clusterOf: Int32Array;
 }
 
 export interface ClusterOptions {
-  /** Stop splitting once there are this many clusters. */
+  /** Stop splitting once we have this many clusters. */
   target?: number;
-  /** Never more than this many; the excess folds into overflow groups. */
+  /** Hard cap. Anything over it gets folded into overflow groups. */
   max?: number;
 }
 
@@ -64,14 +64,14 @@ function folderOf(filePath: string): string {
 }
 
 /**
- * Groups files by folder, finest where it matters.
+ * Group files by folder, going finer where it matters.
  *
- * Starting from one group of everything, it repeatedly splits the largest group into its
- * immediate subfolders until there are about `target` groups. Files sitting directly in
- * a folder form their own group beside its subfolders. When a split would pass `max`
- * groups, as `homeassistant/components` with its 1,500 integrations would, the largest
- * subfolders that fit become groups and the rest fold into one overflow group, so the
- * map never shows more bubbles than can be read.
+ * We start with one group holding everything and keep splitting the biggest group into
+ * its subfolders until there are about `target` groups. Files sitting directly in a
+ * folder get their own group next to its subfolders. If a split would go past `max` (like
+ * `homeassistant/components` with its 1,500 integrations), the biggest subfolders that
+ * fit become groups and the rest get folded into one overflow group, so the map never has
+ * more bubbles than you can read.
  */
 export function clusterByFolder(nodes: ClusterInput[], options: ClusterOptions = {}): Map<string, number[]> {
   const target = options.target ?? 40;
@@ -84,7 +84,7 @@ export function clusterByFolder(nodes: ClusterInput[], options: ClusterOptions =
     folded: number;
   }
 
-  /** Sub-groups of a group: one per next path segment, plus its own direct files. */
+  /** Sub-groups: one per next path segment, plus the folder's own files. */
   const childrenOf = (group: Group): Map<string, ClusterInput[]> => {
     const children = new Map<string, ClusterInput[]>();
     for (const node of group.members) {
@@ -102,13 +102,14 @@ export function clusterByFolder(nodes: ClusterInput[], options: ClusterOptions =
   let groups: Group[] = [{ prefix: "", members: nodes, splittable: true, folded: 0 }];
   const result = new Map<string, number[]>();
 
-  // Past the target, a group still splits while it holds far more than its fair share of
-  // files, so one giant folder does not end up as a single bubble beside many tiny ones.
+  // Even past the target, keep splitting a group while it has way more than its fair
+  // share of files, so one giant folder doesn't end up as a single bubble next to lots of
+  // tiny ones.
   const oversized = (2 * nodes.length) / target;
 
   for (;;) {
-    // The largest group that can still split. A group whose files all sit directly in
-    // one folder has nowhere finer to go.
+    // Biggest group that can still split. A group whose files all sit directly in one
+    // folder can't go any finer.
     const candidates = groups
       .filter((g) => g.splittable)
       .sort((a, b) => b.members.length - a.members.length);
@@ -118,7 +119,7 @@ export function clusterByFolder(nodes: ClusterInput[], options: ClusterOptions =
 
     const children = childrenOf(largest);
     if (children.size <= 1) {
-      // Only one way down: descend without spending a group on it.
+      // Only one way down, so go down without using up a group.
       const [onlyKey, onlyMembers] = [...children.entries()][0] ?? ["", []];
       if (onlyKey === largest.prefix) largest.splittable = false;
       else {
@@ -139,7 +140,7 @@ export function clusterByFolder(nodes: ClusterInput[], options: ClusterOptions =
         ...ordered.map(([prefix, members]) => ({
           prefix,
           members,
-          // A folder's own direct files cannot split further.
+          // A folder's own direct files can't be split further.
           splittable: prefix !== largest.prefix,
           folded: 0,
         })),
@@ -147,10 +148,10 @@ export function clusterByFolder(nodes: ClusterInput[], options: ClusterOptions =
       continue;
     }
 
-    // Too many subfolders: keep the largest few, fold the rest into one group that never
-    // splits, and carry on with the other groups. The folder gets a share of the target
-    // in proportion to its files, so one huge folder cannot spend the whole budget
-    // and leave its equally large neighbours (tests/ beside components/) unsplit.
+    // Too many subfolders: keep the biggest few, fold the rest into one group that never
+    // splits, and move on to the other groups. Each folder gets a share of the target
+    // based on its size, so one huge folder can't use up the whole budget and leave an
+    // equally big neighbour (tests/ next to components/) unsplit.
     const share = largest.members.length / nodes.length;
     const kept = ordered.slice(0, Math.max(1, Math.min(room - 1, Math.floor((target - 1) * share))));
     const overflow = ordered.slice(kept.length);
@@ -172,7 +173,7 @@ export function clusterByFolder(nodes: ClusterInput[], options: ClusterOptions =
   return result;
 }
 
-/** Builds clusters with positions, colours and the imports between them. */
+/** Build clusters with positions, colours and the imports between them. */
 export function buildClustering(
   nodes: ClusterInput[],
   edges: Array<{ from: number; to: number }>,
@@ -208,9 +209,9 @@ export function buildClustering(
       };
     });
 
-  // Folders with the same name (packages/core/src, packages/web/src) would make
-  // identical bubbles, so clashing labels take their parent folder, and the full path if
-  // even that clashes.
+  // Folders with the same name (packages/core/src, packages/web/src) would give identical
+  // bubbles, so clashing labels get their parent folder added, or the full path if that
+  // still clashes.
   const baseName = (folder: string, depth: number) =>
     folder === "" ? "(root)" : folder.split("/").slice(-depth).join("/");
   for (const depth of [1, 2]) {

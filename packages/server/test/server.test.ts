@@ -7,9 +7,9 @@ import type { FastifyInstance } from "fastify";
 import { createServer, isLoopback, repoCacheDir } from "../src/index.js";
 
 /**
- * These drive the real server through Fastify's inject, which never opens a port. No
- * test here reaches Ollama: /api/status is the only route that would, and it is not
- * called.
+ * These run the real server through Fastify's inject, which never opens a port. Nothing
+ * here reaches a real Ollama: every server that answers /api/status is pointed at
+ * 127.0.0.1:9, where nothing is listening.
  */
 
 const LOCAL = { host: "localhost:4317" };
@@ -193,7 +193,9 @@ describe("the graph and ask routes", () => {
 });
 
 describe("analysing from the page", () => {
-  /** A stand-in for core's analyze that records its calls and finishes when told to. */
+  /**
+   * Fake version of core's analyze that records its calls and finishes when we say so.
+   */
   function fakeAnalyzer() {
     const calls: Array<{ target: string; token?: string; provider?: string; cacheDir?: string }> = [];
     let finish!: () => void;
@@ -234,8 +236,8 @@ describe("analysing from the page", () => {
   }
 
   /**
-   * Waits until the server reports the analysis finished. A fixed pause was not enough on
-   * a loaded CI runner: writing the result outlasted it, and the next request read busy.
+   * Wait until the server says the analysis is done. A fixed pause wasn't enough on a
+   * busy CI runner: saving the result took longer, and the next request saw "busy".
    */
   const settle = async (app: { inject: (options: object) => Promise<{ json(): { analysis?: { running?: boolean } } }> }) => {
     for (let i = 0; i < 250; i++) {

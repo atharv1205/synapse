@@ -7,9 +7,8 @@ import { normalizeVector, type SearchHit } from "./store.js";
 export const DEFAULT_TOP_K = 8;
 
 /**
- * The slice of LlmProvider that answering needs. Narrower than the full interface on
- * purpose: any provider satisfies it, and a test fake only has to implement three
- * methods instead of the whole surface.
+ * The part of LlmProvider that answering needs. Kept small on purpose: every provider
+ * fits it, and a test fake only needs three methods instead of the whole thing.
  */
 export interface ChatBackend {
   readonly model: string;
@@ -17,7 +16,7 @@ export interface ChatBackend {
   generateText(prompt: string, options?: { maxTokens?: number }): Promise<string>;
 }
 
-/** A chunk the answer drew on, for --show-sources. */
+/** A chunk the answer used, for --show-sources. */
 export interface Source {
   kind: "file" | "function";
   path: string;
@@ -29,16 +28,16 @@ export interface Source {
 export interface AskOptions extends ProviderOptions {
   /** Where the index lives. */
   cacheDir: string;
-  /** Repo root, needed only if the index has to be built on demand. */
+  /** Repo root. Only needed if we have to build the index on the fly. */
   root?: string;
-  /** Graph to index from, if the index is missing or stale. */
+  /** Graph to index from if the index is missing or out of date. */
   graph?: RepoGraph;
   embedModel?: string;
   topK?: number;
   /**
-   * Rank purely by similarity instead of reserving seats per chunk kind. Off by
-   * default: a global ranking lets the longer file chunks crowd out the function
-   * chunks that usually hold the specific answer.
+   * Rank by similarity only, with no seats reserved per chunk kind. Off by default,
+   * because with a global ranking the longer file chunks push out the function chunks
+   * that usually have the actual answer.
    */
   globalRank?: boolean;
   embedBackend?: EmbeddingBackend;
@@ -51,16 +50,15 @@ export interface AskResult {
   question: string;
   answer: string;
   sources: Source[];
-  /** Set when the question could not be answered, with remediation. */
+  /** Set when we couldn't answer, with what to do about it. */
   message?: string;
-  /** Which backend produced the answer, and which produced the vectors. */
+  /** Which backend wrote the answer and which one made the vectors. */
   providers?: { chat: string; chatModel: string; embed: string; embedModel: string };
 }
 
 /**
- * Assembles the answering prompt. Retrieved chunks are laid out newest-first by
- * relevance and labelled with their source, so the model can cite what it used and the
- * reader can check it.
+ * Build the prompt for answering. Retrieved chunks go in by relevance, each labelled with
+ * where it came from, so the model can cite them and the reader can check.
  */
 export function buildAnswerPrompt(question: string, hits: SearchHit[]): string {
   const lines: string[] = [
@@ -91,12 +89,11 @@ export function buildAnswerPrompt(question: string, hits: SearchHit[]): string {
 }
 
 /**
- * Answers a question by retrieving the most similar chunks and asking the chat model
- * over them.
+ * Answer a question: pull the most similar chunks and ask the chat model about them.
  *
- * Builds the index on demand when one is missing, so a first `ask` works without
- * running `index` first. Returns a result with `ok: false` and remediation instead of
- * throwing, matching how summarisation degrades.
+ * If there's no index yet we build one, so the first `ask` works without running `index`
+ * first. Problems come back as `ok: false` with what to do, same as summarising, instead
+ * of throwing.
  */
 export async function ask(question: string, options: AskOptions): Promise<AskResult> {
   const { cacheDir, topK = DEFAULT_TOP_K, onProgress = () => {} } = options;
@@ -114,12 +111,12 @@ export async function ask(question: string, options: AskOptions): Promise<AskRes
     message,
   });
 
-  // Both backends must be ready; checking up front avoids embedding work that the
-  // answering step would only throw away.
+  // Both backends need to be ready. Checking now saves us embedding stuff only to throw
+  // it away when answering fails.
   //
-  // When chat and embeddings come from different providers, an embedding failure is
-  // confusing on its own — the user asked for Anthropic and is being told about
-  // Ollama — so the reason the two differ is attached to the message.
+  // If chat and embeddings use different providers, an embedding error on its own is
+  // confusing (you picked Anthropic and it's talking about Ollama), so we add the reason
+  // they differ to the message.
   const embedReady = await embedBackend.preflight(embedModel);
   if (!embedReady.ok) {
     return fail(
@@ -168,7 +165,7 @@ export async function ask(question: string, options: AskOptions): Promise<AskRes
   try {
     hits = store.search(queryVector, topK, { balanceKinds: options.globalRank !== true });
   } catch (error) {
-    // Dimension mismatch: the index was built with a different embedding model.
+    // Dimensions don't match, i.e. the index was built with a different embedding model.
     return fail(error instanceof Error ? error.message : String(error));
   }
 

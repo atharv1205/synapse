@@ -1,16 +1,12 @@
 #!/usr/bin/env node
-/**
- * Regenerates the landing page's sample graph from a real analysis.
- *
- *   node packages/cli/dist/src/index.js analyze . --skip-summarize --out /tmp/self
- *   npm run sample-graph --workspace @synapse/web -- /tmp/self/graph.json
- *
- * The landing hero renders Synapse's own codebase, so it shows the real product on
- * real data rather than a mock-up. Only what the scene draws is kept: file nodes with
- * their metrics and the import edges. Summaries, declarations and function edges are
- * dropped, which takes a graph of this repo from ~150KB to ~28KB. `source` is replaced
- * too, because the real one is the absolute path of whoever ran the analysis.
- */
+// Regenerates the sample graph the landing page shows (it's Synapse's own code).
+//
+//   node packages/cli/dist/src/index.js analyze . --skip-summarize --out /tmp/self
+//   npm run sample-graph --workspace @synapse/web -- /tmp/self/graph.json
+//
+// Strips it down to what the hero actually draws (files, metrics, import edges), which
+// takes it from ~150KB to ~28KB. Also replaces `source`, since that's the absolute path
+// on whoever's machine ran it.
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

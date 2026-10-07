@@ -12,9 +12,9 @@ import type { RepoGraph } from "../src/types.js";
 import { createFixture, type Fixture } from "./fixture.js";
 
 /**
- * A deterministic stand-in for a real embedding model: a bag-of-words vector over a
- * fixed vocabulary. Texts that share vocabulary land near each other, so retrieval
- * tests exercise real cosine similarity without any model or network.
+ * Fake but deterministic embedding model: a bag-of-words vector over a fixed vocabulary.
+ * Texts that share words end up close together, so the retrieval tests use real cosine
+ * similarity without any model or network.
  */
 const VOCAB = [
   "registry",
@@ -43,7 +43,7 @@ class FakeEmbedder implements EmbeddingBackend {
     private readonly behaviour: {
       preflight?: Preflight;
       throws?: string;
-      /** Returns vectors of the wrong width, to exercise the consistency check. */
+      /** Return vectors of the wrong size, to test the consistency check. */
       ragged?: boolean;
     } = {},
   ) {}
@@ -78,7 +78,7 @@ class FakeChat implements ChatBackend {
   }
 }
 
-/** A graph with summaries filled in, so function chunks exist to retrieve. */
+/** A graph with summaries filled in, so there are function chunks to retrieve. */
 async function summarisedGraph(root: string): Promise<RepoGraph> {
   const graph = await analyze(root, { skipSummarize: true });
 
@@ -86,7 +86,7 @@ async function summarisedGraph(root: string): Promise<RepoGraph> {
     node.summary = `Summary for ${node.path}.`;
   }
 
-  // Declarations live once, in functionNodes, so one write is all it takes.
+  // Declarations only live in functionNodes, so writing once is enough.
   for (const fn of graph.functionNodes.filter((f) => f.file === "hub.ts")) {
     fn.summary = `${fn.qualifiedName} does something with the registry helper.`;
   }
@@ -275,7 +275,7 @@ describe("BruteForceStore", () => {
 describe("balanced retrieval", () => {
   const dir = "/unused";
 
-  /** File chunks deliberately score higher than function chunks on the query. */
+  /** File chunks are set up to score higher than function chunks for this query. */
   const build = () => {
     const store = BruteForceStore.empty(dir, "fake-embed");
     const entries: Array<{ chunk: StoredChunk; vector: Float32Array }> = [];
@@ -336,7 +336,7 @@ describe("balanced retrieval", () => {
   it("still returns the best chunks within each kind", () => {
     const hits = build().search(query(), 4, { balanceKinds: true });
     const files = hits.filter((h) => h.chunk.kind === "file");
-    // Scores tie, so importance breaks it: f0 and f1 are the most important files.
+    // Scores are tied, so importance decides: f0 and f1 are the most important files.
     assert.deepEqual(files.map((h) => h.chunk.path), ["f0.ts", "f1.ts"]);
   });
 
@@ -350,7 +350,7 @@ describe("balanced retrieval", () => {
   it("gives an odd seat to the best remaining chunk of either kind", () => {
     const hits = build().search(query(), 5, { balanceKinds: true });
     assert.equal(hits.length, 5);
-    // floor(5/2) = 2 each, and the spare goes to the higher-scoring kind.
+    // floor(5/2) = 2 each, and the spare slot goes to the higher-scoring kind.
     assert.equal(hits.filter((h) => h.chunk.kind === "file").length, 3);
   });
 
@@ -383,7 +383,7 @@ describe("balanced retrieval", () => {
       },
     ]);
 
-    // No function chunks exist, so the file chunks must fill every seat.
+    // There are no function chunks, so file chunks have to fill every slot.
     const hits = store.search(query(), 2, { balanceKinds: true });
     assert.equal(hits.length, 2);
   });
@@ -634,7 +634,7 @@ describe("ask", () => {
     });
 
     assert.equal(result.ok, true);
-    // One call, for the question itself — the corpus was already embedded.
+    // One call, for the question. The corpus was already embedded.
     assert.equal(embedder.calls, 1);
     assert.deepEqual(embedder.texts, ["registry"]);
   });
@@ -712,7 +712,7 @@ describe("ask", () => {
   it("surfaces a dimension mismatch as a re-index instruction", async () => {
     await buildIndex(graph, { root: fixture.root, cacheDir, backend: new FakeEmbedder() });
 
-    // An embedder that returns a different width, as a different model would.
+    // An embedder that returns a different size, like a different model would.
     const wrongWidth: EmbeddingBackend = {
       async preflight() {
         return { ok: true };

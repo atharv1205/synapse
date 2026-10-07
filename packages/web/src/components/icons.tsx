@@ -1,7 +1,7 @@
 /**
- * The handful of icons the UI needs, drawn inline at one 16px grid and one 1.5px stroke
- * so they sit together. The GitHub mark is GitHub's own (Octicons, MIT), used only to
- * link to GitHub, which is what their logo guidelines allow it for.
+ * The few icons the UI needs, drawn inline on the same 16px grid with the same 1.5px
+ * stroke so they match. The GitHub mark is GitHub's own (Octicons, MIT) and is only used
+ * to link to GitHub, which is what their logo guidelines allow.
  */
 interface IconProps {
   className?: string;

@@ -27,53 +27,52 @@ export {
 } from "./ask.js";
 
 /**
- * The slice of LlmProvider that indexing needs. Any provider with embeddings satisfies
- * it; a provider without them fails its preflight rather than being passed here.
+ * The part of LlmProvider that indexing needs. Any provider with embeddings fits; one
+ * without them fails preflight before it ever gets here.
  */
 export interface EmbeddingBackend {
   preflight(model?: string): Promise<Preflight>;
   embed(texts: string[], model: string): Promise<number[][]>;
 }
 
-/** How many chunks to send per embedding request. */
+/** Chunks per embedding request. */
 const EMBED_BATCH = 16;
 
 export interface IndexOptions extends ProviderOptions {
-  /** Repo root, used to recover real function signatures for chunks. */
+  /** Repo root, used to get real function signatures for chunks. */
   root?: string;
   /** Where embeddings.json and embeddings.bin live. */
   cacheDir: string;
-  /** Embedding model; must be one built for embeddings, not a chat model. */
+  /** Embedding model. Has to be an actual embedding model, not a chat one. */
   embedModel?: string;
   backend?: EmbeddingBackend;
   onProgress?: (message: string) => void;
 }
 
 export interface IndexReport {
-  /** False when the index could not be built; `message` says why. */
+  /** False if we couldn't build the index. `message` says why. */
   ran: boolean;
   embedModel: string;
   /** Chunks in the index after this run. */
   total: number;
-  /** Chunks embedded fresh this run. */
+  /** Chunks embedded fresh this time. */
   embedded: number;
-  /** Chunks whose vectors were reused because their text had not changed. */
+  /** Chunks whose vectors we reused because the text didn't change. */
   reused: number;
-  /** Vector dimensionality, once known. */
+  /** Vector size, once we know it. */
   dim: number;
   message?: string;
 }
 
 /**
- * Builds or refreshes the embedding index for a graph.
+ * Build or refresh the embedding index for a graph.
  *
- * Chunks are keyed by a SHA-256 of their own text, exactly as summaries are keyed by a
- * hash of their file, so a re-run only embeds what actually changed. Changing the
- * embedding model invalidates everything, since vectors from two models are not
- * comparable.
+ * Chunks are keyed by a SHA-256 of their text (summaries work the same way with file
+ * hashes), so a re-run only embeds what changed. Switching embedding models throws
+ * everything out, since vectors from two models can't be compared.
  *
- * Never throws for an unavailable Ollama or a model that cannot embed: those come back
- * as a report with `ran: false` and remediation.
+ * Doesn't throw if Ollama is down or the model can't embed. You get a report with
+ * `ran: false` and what to do.
  */
 export async function buildIndex(graph: RepoGraph, options: IndexOptions): Promise<IndexReport> {
   const { cacheDir, root, onProgress = () => {} } = options;
@@ -92,7 +91,7 @@ export async function buildIndex(graph: RepoGraph, options: IndexOptions): Promi
 
   const store = await BruteForceStore.load(cacheDir, embedModel);
 
-  // Reuse what we can before deciding what to send to the model.
+  // Reuse whatever we can before working out what to send to the model.
   const entries: Array<{ chunk: StoredChunk; vector: Float32Array }> = [];
   const pending: Chunk[] = [];
   const pendingIndex: number[] = [];
@@ -102,7 +101,7 @@ export async function buildIndex(graph: RepoGraph, options: IndexOptions): Promi
     const existing = store.reusable(chunk, embedModel);
 
     if (existing) {
-      // Copy: the subarray views a buffer that `replace` is about to discard.
+      // Copy it: the subarray points into a buffer `replace` is about to throw away.
       entries.push({ chunk: stored, vector: new Float32Array(existing) });
     } else {
       pendingIndex.push(entries.length);
@@ -155,7 +154,7 @@ export async function buildIndex(graph: RepoGraph, options: IndexOptions): Promi
   };
 }
 
-/** Loads an index without rebuilding it, for answering against what is already there. */
+/** Load an index without rebuilding it, to answer from what's already there. */
 export async function loadIndex(cacheDir: string, embedModel: string): Promise<VectorStore> {
   return BruteForceStore.load(cacheDir, embedModel);
 }

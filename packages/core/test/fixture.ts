@@ -4,16 +4,16 @@ import path from "node:path";
 import { simpleGit } from "simple-git";
 
 /**
- * A throwaway git repo with a known shape, built on disk so the tests exercise the
- * real walker, the real parser and real `git log` rather than mocks.
+ * A throwaway git repo with a known layout, built on disk so the tests run the real
+ * walker, parser and `git log` instead of mocks.
  *
- * The dependency shape is deliberate:
+ * The dependency shape is on purpose:
  *   app.ts    -> util.ts, hub.ts, lib/index.ts
  *   util.ts   -> hub.ts
  *   lib/index.ts -> hub.ts
  *   orphan.ts -> (nothing, and nothing imports it)
  *   py/main.py -> py/helpers.py
- * so `hub.ts` must come out as the most central file and `orphan.ts` the least.
+ * so `hub.ts` has to come out as the most central file and `orphan.ts` the least.
  */
 export interface Fixture {
   root: string;
@@ -44,7 +44,7 @@ export class Registry {
 }
 `,
 
-  // Imports "./hub.js" — the NodeNext spelling that must resolve back to hub.ts.
+  // Imports "./hub.js", the NodeNext spelling that has to resolve back to hub.ts.
   "util.ts": `
 import { sharedHelper } from "./hub.js";
 
@@ -55,7 +55,7 @@ export function double(n: number): number {
 export const triple = (n: number): number => sharedHelper(n) + n;
 `,
 
-  // Imports "./lib" with no extension, which must resolve to lib/index.ts.
+  // Imports "./lib" with no extension, which has to resolve to lib/index.ts.
   "app.ts": `
 import { double, triple } from "./util.js";
 import { Registry } from "./hub.js";
@@ -110,24 +110,24 @@ def run(values):
     return os.getcwd()
 `,
 
-  // Must be skipped: inside node_modules.
+  // Should be skipped: it's in node_modules.
   "node_modules/pkg/index.ts": `export function vendored(): number { return 1; }`,
 
-  // Must be skipped: matched by .gitignore.
+  // Should be skipped: .gitignore matches it.
   "generated/output.ts": `export const generated = true;`,
   "stale.gen.ts": `export const stale = true;`,
 
-  // Must be KEPT: negated by "!keep.gen.ts".
+  // Should be KEPT: "!keep.gen.ts" un-ignores it.
   "keep.gen.ts": `export const kept = true;`,
 
-  // Filled in below: a file deliberately larger than tree-sitter's old string limit.
+  // Filled in below with a file bigger than tree-sitter's old string limit.
   "big.ts": "",
 };
 
 /**
- * tree-sitter's Node binding rejects a string of 32,768 characters or more, which used
- * to make every file above that size vanish from the graph without a word. This file is
- * generated just over the line so the regression cannot come back unnoticed.
+ * tree-sitter's Node binding rejects strings of 32,768 chars or more, which used to make
+ * every file over that size silently disappear from the graph. We generate this one just
+ * past the limit so that bug can't come back unnoticed.
  */
 export const BIG_FILE_MIN_CHARS = 32_768;
 
@@ -136,8 +136,8 @@ function buildBigFile(): string {
   const body: string[] = [];
   let index = 0;
 
-  // Padded with a comment so the file crosses the limit on size, not on declaration
-  // count — a few hundred functions would otherwise be enough to pass by accident.
+  // Padded with a comment so it crosses the limit by size, not by number of declarations.
+  // Otherwise a few hundred functions could pass by accident.
   while (header.length + body.join("").length <= BIG_FILE_MIN_CHARS + 2_000) {
     body.push(
       `// filler to push this file past the parser's old ceiling ${"-".repeat(40)}\n` +
@@ -148,7 +148,8 @@ function buildBigFile(): string {
     index++;
   }
 
-  // One distinctive declaration at the very end, so a truncated parse is detectable.
+  // One easy-to-spot declaration right at the end, so we notice if the parse got cut
+  // short.
   body.push("export function lastDeclaration(): number {\n  return sharedHelper(1);\n}\n");
   return header + body.join("");
 }
@@ -166,13 +167,13 @@ export async function createFixture(): Promise<Fixture> {
 
   const git = simpleGit(root);
   await git.init();
-  // Local identity so the commits work on machines with no global git config.
+  // Local identity so commits work on machines without a global git config.
   await git.addConfig("user.email", "fixture@example.com");
   await git.addConfig("user.name", "Fixture");
   await git.addConfig("commit.gpgsign", "false");
 
-  // Three commits touching hub.ts and one touching app.ts, so churn is measurably
-  // different between them and the test can assert on the ordering.
+  // Three commits touch hub.ts and one touches app.ts, so their churn is clearly
+  // different and the test can check the order.
   await git.add(".");
   await git.commit("initial");
 

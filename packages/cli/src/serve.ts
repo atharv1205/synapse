@@ -6,18 +6,18 @@ import type { ProviderName } from "@synapse/core";
 import { createServer, isLoopback } from "@synapse/server";
 
 export interface ServeOptions {
-  /** What is being served: a local path, or a repository URL with any credential removed. */
+  /** What we're serving: a local path, or a repo URL with any credential removed. */
   root: string;
   /**
-   * The URL to clone when the target is remote, credential included if the user put one
-   * in it. Only the analysis sees this; everything printed or returned uses `root`.
+   * The URL to clone when the target is remote, including a credential if the user put
+   * one in. Only the analysis sees this; everything we print or return uses `root`.
    */
   cloneTarget?: string;
   cacheDir: string;
   port: number;
   host: string;
   provider?: ProviderName;
-  /** Credential for cloning a private repository, if the target is a URL. */
+  /** Token for cloning a private repo, if the target is a URL. */
   token?: string;
   model?: string;
   embedModel?: string;
@@ -25,27 +25,27 @@ export interface ServeOptions {
   skipSummarize?: boolean;
   skipGitHub?: boolean;
   summarizeTop?: number;
-  /** Suppress opening a browser window. */
+  /** Don't open a browser window. */
   noOpen?: boolean;
 }
 
-/** Opens a URL in the platform's default browser, best-effort. */
+/** Try to open a URL in the default browser. */
 function openBrowser(url: string): void {
   const command =
     process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
   try {
-    // Detached and unref'd so the browser process does not keep the server alive.
+    // Detached and unref'd so the browser doesn't keep the server alive.
     spawn(command, [url], { stdio: "ignore", detached: true, shell: process.platform === "win32" })
       .unref();
   } catch {
-    // Not being able to open a browser is not a reason to fail; the URL is printed anyway.
+    // Couldn't open a browser? Not worth failing over, the URL gets printed anyway.
   }
 }
 
 /**
- * Locates the built web app. Two layouts are possible: the monorepo, where this file is
- * packages/cli/dist/src/serve.js beside packages/web/dist, and the published package,
- * where it is dist/cli/serve.js and the app ships in web/ at the package root.
+ * Find the built web app. Two possible layouts: in the monorepo this file is
+ * packages/cli/dist/src/serve.js next to packages/web/dist, and in the published package
+ * it's dist/cli/serve.js with the app in web/ at the root.
  */
 async function findWebDist(): Promise<string | undefined> {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -56,17 +56,17 @@ async function findWebDist(): Promise<string | undefined> {
       await access(path.join(candidate, "index.html"));
       return candidate;
     } catch {
-      // Not this layout; try the next.
+      // Not this layout, try the next one.
     }
   }
   return undefined;
 }
 
 /**
- * Runs an analysis if there is no graph yet, then serves the API and the built UI.
+ * Analyse if there's no graph yet, then serve the API and the UI.
  *
- * Analysis degrades exactly as `analyze` does: a missing Ollama means no summaries, not
- * a failed start. The UI then reads /api/status and shows the same remediation text.
+ * Analysis degrades the same way `analyze` does: no Ollama just means no summaries, not a
+ * failed start. The UI reads /api/status and shows the same fix-it text.
  */
 export async function serve(options: ServeOptions): Promise<void> {
   const graphFile = path.join(options.cacheDir, "graph.json");
@@ -95,9 +95,9 @@ export async function serve(options: ServeOptions): Promise<void> {
     model: options.model,
     embedModel: options.embedModel,
     ollamaUrl: options.ollamaUrl,
-    // The first analysis starts as the server is created and runs while it listens.
-    // Summarising takes minutes on a local model; blocking the listen until it finished
-    // meant the browser opened on a dead port. Now /api/status reports progress at once.
+    // The first analysis starts along with the server and runs while it's listening.
+    // Summaries take minutes on a local model, and waiting for that before listening
+    // meant the browser opened on a dead port. Now /api/status shows progress right away.
     initialAnalysis: hasGraph
       ? undefined
       : {
@@ -133,11 +133,11 @@ export async function serve(options: ServeOptions): Promise<void> {
   }
   console.log("\nPress Ctrl+C to stop.");
 
-  // Straight into the explorer: someone who ran `serve` came to use the tool, and the
-  // landing page at / is one click away from its wordmark.
+  // Go straight to the explorer. If you ran `serve` you came to use the tool, and the
+  // landing page at / is one click away from the logo.
   if (webDist && !options.noOpen) openBrowser(`${url}/graph`);
 
-  // Shut down cleanly so the port is released rather than left in TIME_WAIT on restart.
+  // Shut down cleanly so the port is freed instead of sitting in TIME_WAIT on restart.
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.once(signal, () => {
       void app.close().then(() => process.exit(0));

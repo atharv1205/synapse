@@ -1,22 +1,16 @@
-#!/usr/bin/env node
-/**
- * Assembles the publishable `synapse-map` package from the monorepo's builds, then runs
- * `npm pack` on it. Nothing is published; the tarball lands in release/.
- *
- *   npm run release:pack
- *
- * Why a staged package rather than publishing the workspaces: the internal names are
- * `@synapse/*`, and that npm scope belongs to someone else, so they can never be
- * published. One self-contained package also gives `npx synapse-map` a single install.
- *
- * Layout of the package:
- *   dist/cli, dist/core, dist/server   compiled JS, with @synapse/* imports made relative
- *   web/                               the built web app, served by `serve`
- *   THIRD_PARTY_NOTICES.md             licences of everything bundled into web/
- *
- * It fails loudly on the packaging bugs `npm link` hides: an internal import left
- * unrewritten, or a third-party import that is not a declared dependency.
- */
+// Builds the npm package (synapse-map) into release/. Doesn't publish anything.
+//
+//   npm run release:pack
+//
+// We can't publish the workspaces directly because the @synapse scope on npm isn't
+// ours, so everything gets bundled into one package instead (also means npx is a
+// single install). It ends up as:
+//   dist/cli, dist/core, dist/server   compiled JS, @synapse/* imports made relative
+//   web/                               the built web app
+//   THIRD_PARTY_NOTICES.md             licences for stuff bundled into web/
+//
+// Also catches the stuff npm link hides: an @synapse import that didn't get rewritten,
+// or an import of a package that isn't in dependencies.
 import { execFileSync } from "node:child_process";
 import {
   cpSync,
@@ -37,7 +31,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RELEASE = path.join(ROOT, "release");
 const STAGE = path.join(RELEASE, NAME);
 
-/** Monorepo packages whose compiled source ships, and where it goes in the package. */
+// which workspace packages ship, and where they go
 const PARTS = {
   "@synapse/core": { from: "packages/core", to: "dist/core" },
   "@synapse/server": { from: "packages/server", to: "dist/server" },
@@ -58,7 +52,7 @@ function walk(dir, visit) {
   }
 }
 
-// --- 0. the builds must exist --------------------------------------------------
+// 1. make sure everything is built
 
 for (const { from } of Object.values(PARTS)) {
   if (!existsSync(path.join(ROOT, from, "dist/src/index.js"))) {
@@ -71,12 +65,12 @@ if (!existsSync(path.join(WEB_DIST, "index.html"))) fail("packages/web is not bu
 rmSync(STAGE, { recursive: true, force: true });
 mkdirSync(STAGE, { recursive: true });
 
-// --- 1. compiled JS, with internal imports rewritten ----------------------------
+// 2. copy the compiled JS and rewrite the @synapse imports
 
 for (const { from, to } of Object.values(PARTS)) {
   cpSync(path.join(ROOT, from, "dist/src"), path.join(STAGE, to), {
     recursive: true,
-    // Declarations, maps and build info are for developing Synapse, not running it.
+    // only .js, no need to ship .d.ts / maps / tsbuildinfo
     filter: (source) => statSync(source).isDirectory() || source.endsWith(".js"),
   });
 }
@@ -88,8 +82,7 @@ walk(path.join(STAGE, "dist"), (file) => {
   if (!file.endsWith(".js")) return;
   const source = readFileSync(file, "utf8");
 
-  // Collect bare imports from code lines only: tsc keeps comments, and a comment that
-  // quotes an example like `export ... from "x"` is not a dependency.
+  // skip comment lines, tsc keeps comments and some of them quote import examples
   for (const line of source.split("\n")) {
     const trimmed = line.trimStart();
     if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) continue;
@@ -109,7 +102,7 @@ walk(path.join(STAGE, "dist"), (file) => {
   writeFileSync(file, rewritten);
 });
 
-// --- 2. dependencies: the union of the parts' own, checked against the imports --
+// 3. merge the dependencies and check every import is covered
 
 const dependencies = {};
 for (const { from } of Object.values(PARTS)) {
@@ -134,17 +127,15 @@ for (const specifier of imported) {
   }
 }
 
-// --- 3. the web app ------------------------------------------------------------
+// 4. web app
 
 cpSync(WEB_DIST, path.join(STAGE, "web"), { recursive: true });
 
-// --- 4. third-party notices for what the web bundle contains --------------------
+// 5. licence notices for whatever got bundled into the web app
 
-/**
- * For a package published without a licence file. MIT's text is standard and only the
- * copyright line varies, so it is written out with the holder from package.json and a
- * note saying where that came from. Any other licence is named, not reconstructed.
- */
+// Some packages don't ship a LICENSE file. For MIT we can write it out ourselves since
+// only the copyright line changes (author comes from package.json). Anything else we
+// just name.
 function licenceFromManifest(manifest) {
   const author = typeof manifest.author === "string" ? manifest.author : manifest.author?.name;
   if (manifest.license !== "MIT" || !author) {
@@ -162,7 +153,7 @@ function licenceFromManifest(manifest) {
   ].join("\n");
 }
 
-/** Maps each npm package named in a build's sourcemaps to its directory on disk. */
+// package name -> folder on disk, for every package that shows up in the sourcemaps
 function collectSources(out, found) {
   walk(out, (file) => {
     if (!file.endsWith(".map")) return;
@@ -179,16 +170,12 @@ function collectSources(out, found) {
   });
 }
 
-/**
- * The web bundle is minified, which strips every licence comment, yet MIT and OFL both
- * require their notices to travel with copies. A second, sourcemapped build says
- * exactly which packages made it into the bundle; their licence files are collected
- * from there. Fonts ship as CSS-referenced files that no JS sourcemap sees, so the
- * @fontsource packages are added from the web app's dependencies.
- */
+// Minifying strips the licence comments, but MIT/OFL want the notices shipped. So do a
+// second build with sourcemaps to see which packages actually got bundled, and grab
+// their licence files. Fonts don't show up in JS sourcemaps, so the @fontsource ones
+// get added from web's package.json.
 function thirdPartyNotices() {
-  // Built beside dist/, at the same depth: the sourcemaps' relative paths are written as
-  // if from dist/assets, so an output folder anywhere else resolves them wrongly.
+  // has to sit next to dist/ (same depth) or the relative paths in the maps break
   const out = path.join(ROOT, "packages/web/.notices-build");
   const found = new Map();
   try {
@@ -240,7 +227,7 @@ function thirdPartyNotices() {
 
 writeFileSync(path.join(STAGE, "THIRD_PARTY_NOTICES.md"), thirdPartyNotices());
 
-// --- 5. manifest, readme, licence ----------------------------------------------
+// 6. package.json, README, LICENSE
 
 const cli = readJson(path.join(ROOT, "packages/cli/package.json"));
 const manifest = {
@@ -283,7 +270,7 @@ writeFileSync(path.join(STAGE, "package.json"), JSON.stringify(manifest, null, 2
 cpSync(path.join(ROOT, "README.md"), path.join(STAGE, "README.md"));
 cpSync(path.join(ROOT, "LICENSE"), path.join(STAGE, "LICENSE"));
 
-// --- 6. pack -------------------------------------------------------------------
+// 7. pack it
 
 const [result] = JSON.parse(
   execFileSync("npm", ["pack", "--json", "--pack-destination", RELEASE], { cwd: STAGE, encoding: "utf8" }),

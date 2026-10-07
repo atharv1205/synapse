@@ -3,13 +3,13 @@ import type { Source } from "@synapse/core";
 import { api, ApiError, PROVIDER_LABELS, type AskAnswer, type ProviderName } from "../api";
 
 export interface AskPanelProps {
-  /** Set when a node's "Ask about this file" button pre-filled a question. */
+  /** Set when a file's "Ask about this file" button filled in a question. */
   prefill?: string;
   /** Whether /api/status says both models are ready. */
   canAsk: boolean;
-  /** Who answers; undefined means the server's default. */
+  /** Who answers. Undefined means the server's default. */
   provider?: ProviderName;
-  /** Remediation from /api/status, shown when asking is unavailable. */
+  /** Fix-it text from /api/status, shown when asking isn't available. */
   unavailableMessage?: string;
   /** Clicking a cited source focuses that file in the 3D view. */
   onFocusSource(path: string): void;
@@ -30,8 +30,8 @@ export function AskPanel({
   const [pending, setPending] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // A pre-filled question replaces whatever was in the box and takes focus, so the
-  // button on the node panel lands the user ready to hit Ask.
+  // A pre-filled question replaces whatever's in the box and grabs focus, so after the
+  // button on the file panel you're ready to hit Ask.
   useEffect(() => {
     if (!prefill) return;
     setQuestion(prefill);
@@ -52,7 +52,7 @@ export function AskPanel({
       setAnswer(result);
       onSourcesChange(result.sources.map((s) => s.path));
     } catch (caught) {
-      // Core's remediation text comes through the API verbatim; show it as-is.
+      // Core's fix-it text comes through the API word for word, show it as is.
       setError(caught instanceof ApiError ? caught.message : String(caught));
     } finally {
       setPending(false);
@@ -77,7 +77,7 @@ export function AskPanel({
         value={question}
         onChange={(event) => setQuestion(event.target.value)}
         onKeyDown={(event) => {
-          // Enter submits; Shift+Enter is a newline, as in most chat inputs.
+          // Enter sends, Shift+Enter adds a new line, like most chat boxes.
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             void submit();

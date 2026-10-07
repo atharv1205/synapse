@@ -1,9 +1,9 @@
-/** Languages we can currently parse. */
+/** Languages we can parse right now. */
 export type Language = "javascript" | "typescript" | "tsx" | "python" | "java" | "go";
 
-/** A source file discovered during ingestion, before parsing. */
+/** A source file found while walking the repo, before it's parsed. */
 export interface SourceFile {
-  /** Path relative to the repo root, always POSIX-separated. */
+  /** Repo-relative path, always with forward slashes. */
   path: string;
   /** Absolute path on disk. */
   absPath: string;
@@ -11,58 +11,60 @@ export interface SourceFile {
   sizeBytes: number;
 }
 
-/** A function, method, or class declaration found inside a file. */
+/** A function, method or class declared in a file. */
 export interface FunctionSymbol {
-  /** Stable id: `<file path>#<qualified name>`. */
+  /** Stable id, `<file path>#<qualified name>`. */
   id: string;
   name: string;
-  /** Dotted path for nested declarations, e.g. `MyClass.render`. */
+  /** Dotted name for nested declarations, like `MyClass.render`. */
   qualifiedName: string;
   kind: "function" | "method" | "class";
   startLine: number;
   endLine: number;
   exported: boolean;
-  /** Centrality-derived score within the function-level graph, 0..1. */
+  /** 0..1 score from the function-level call graph. */
   importance: number;
-  /** One-sentence LLM summary. Present only for summarised files' top functions. */
+  /**
+   * One-line summary from the LLM. Only set for the top functions of summarised files.
+   */
   summary?: string;
 }
 
-/** A file-level node in the dependency graph. */
+/** A file in the dependency graph. */
 export interface FileNode {
-  /** Stable id; identical to `path`. */
+  /** Same as `path`. */
   id: string;
   path: string;
   type: "file";
   language: Language;
-  /** Combined centrality + churn score, normalised to 0..1. */
+  /** Centrality and churn blended into one 0..1 score. */
   importance: number;
   metrics: FileMetrics;
-  /** 1-3 sentence LLM summary. Present only for files that were summarised. */
+  /** 1-3 sentence summary from the LLM, if this file got summarised. */
   summary?: string;
   /**
-   * Ids of the declarations in this file, pointing into `RepoGraph.functionNodes`,
-   * which is the single source of truth for them.
+   * Ids of this file's declarations. The actual records live in
+   * `RepoGraph.functionNodes`.
    *
-   * These used to be full objects, which meant every declaration was serialised twice —
-   * 32MB of pure duplication on an 18,851-file repo. Resolve them with
-   * `functionIndex()` / `functionsOf()`.
+   * These used to be full objects, so every declaration got written out twice. On an
+   * 18,851-file repo that was 32MB of duplicates. Use `functionIndex()` / `functionsOf()`
+   * to look them up.
    */
   functions: string[];
 }
 
 export interface FileMetrics {
-  /** Lines of code (raw line count). */
+  /** Raw line count. */
   loc: number;
-  /** Number of commits that touched this file. */
+  /** How many commits touched this file. */
   churn: number;
-  /** Files this file imports. */
+  /** How many files this one imports. */
   outDegree: number;
-  /** Files that import this file. */
+  /** How many files import this one. */
   inDegree: number;
-  /** Normalised graph-centrality component of `importance`, 0..1. */
+  /** The centrality half of `importance`, 0..1. */
   centrality: number;
-  /** Normalised churn component of `importance`, 0..1. */
+  /** The churn half of `importance`, 0..1. */
   churnScore: number;
 }
 
@@ -70,18 +72,17 @@ export interface GraphEdge {
   from: string;
   to: string;
   type: "import" | "call";
-  /** How many times this relationship was observed. */
+  /** How many times we saw this relationship. */
   weight: number;
 }
 
 /**
- * A declaration in the function-level graph, and the canonical record of it.
- *
- * `FileNode.functions` holds ids into this list rather than copies.
+ * A declaration in the function-level graph. This is the one real copy;
+ * `FileNode.functions` just points here by id.
  */
 export interface FunctionNode {
   id: string;
-  /** Owning file's path. */
+  /** Path of the file it lives in. */
   file: string;
   name: string;
   qualifiedName: string;
@@ -90,48 +91,48 @@ export interface FunctionNode {
   importance: number;
   startLine: number;
   endLine: number;
-  /** Whether the declaration is exported from its module. */
+  /** Whether the module exports it. */
   exported: boolean;
   summary?: string;
 }
 
 /**
- * What the code host says about a repository: GitHub's description, stars and the like.
- * Present only when the analysed repository is on GitHub and the lookup succeeded.
+ * Repo details from GitHub (description, stars and so on). Only there when the repo is on
+ * GitHub and the lookup worked.
  */
 export interface RepositoryInfo {
   host: "github.com";
   owner: string;
   name: string;
-  /** `owner/name` as GitHub spells it. */
+  /** `owner/name`, spelled the way GitHub spells it. */
   fullName: string;
-  /** The repository's page on GitHub. */
+  /** The repo's GitHub page. */
   url: string;
   description?: string;
   homepage?: string;
   stars?: number;
   forks?: number;
-  /** GitHub's primary language for the repository. */
+  /** Main language according to GitHub. */
   language?: string;
   topics?: string[];
-  /** SPDX identifier, e.g. "MIT". */
+  /** SPDX id, e.g. "MIT". */
   license?: string;
   defaultBranch?: string;
-  /** When the repository was last pushed to. */
+  /** Last push to the repo. */
   pushedAt?: string;
   archived?: boolean;
   private?: boolean;
-  /** When these details were fetched; they go stale. */
+  /** When we fetched this. It goes stale. */
   fetchedAt: string;
 }
 
 export interface RepoGraph {
   /**
-   * 2 — `nodes[].functions` holds ids into `functionNodes` rather than copies of the
-   * declarations. A version 1 file has the duplicated shape and must be regenerated.
+   * Version 2: `nodes[].functions` holds ids into `functionNodes` instead of copies.
+   * Version 1 files have the old duplicated shape and need regenerating.
    */
   version: 2;
-  /** Where the analysed source lived. For clones, the original URL. */
+  /** Where the source came from. For clones, the original URL. */
   source: string;
   generatedAt: string;
   stats: GraphStats;
@@ -139,35 +140,35 @@ export interface RepoGraph {
   edges: GraphEdge[];
   functionNodes: FunctionNode[];
   functionEdges: GraphEdge[];
-  /** The code host's details for the repository, when it is on GitHub. */
+  /** GitHub's details for the repo, if it's on GitHub. */
   repository?: RepositoryInfo;
-  /** Present whenever summarisation was attempted, including when it was skipped. */
+  /** Set whenever we tried to summarise, even if it got skipped. */
   summarization?: SummarizationReport;
-  /** The files behind `stats.parseFailures`, so a regression names itself. */
+  /** Which files make up `stats.parseFailures`, so a regression is easy to track down. */
   parseFailures: ParseFailure[];
 }
 
-/** What happened during the summarisation pass, for the CLI to report honestly. */
+/** What happened in the summarise step, so the CLI can report it straight. */
 export interface SummarizationReport {
-  /** False when summarisation could not run at all; `message` says why. */
+  /** False if summarising couldn't run at all. `message` says why. */
   ran: boolean;
   model: string;
-  /** Files selected for summarisation. */
+  /** Files picked for summarising. */
   selected: number;
-  /** Reused from .synapse/summaries.json because the file had not changed. */
+  /** Reused from .synapse/summaries.json since the file hadn't changed. */
   fromCache: number;
-  /** Freshly generated by the model. */
+  /** Newly generated by the model. */
   generated: number;
-  /** Files whose summarisation failed; they simply carry no summary. */
+  /** Files that failed to summarise. They just don't get a summary. */
   failed: number;
-  /** Set when the pass was skipped or partially failed, with remediation. */
+  /** Set when the step was skipped or partly failed, with what to do about it. */
   message?: string;
 }
 
-/** A file that could not be read or parsed, and so is absent from the graph. */
+/** A file we couldn't read or parse, so it's missing from the graph. */
 export interface ParseFailure {
   path: string;
-  /** Why it dropped out — the read or parse error, verbatim. */
+  /** The read or parse error, word for word. */
   reason: string;
 }
 
@@ -176,15 +177,15 @@ export interface GraphStats {
   edgeCount: number;
   functionCount: number;
   functionEdgeCount: number;
-  /** Imports that pointed outside the repo (node_modules, stdlib, unresolved). */
+  /** Imports that point outside the repo (node_modules, stdlib, or just unresolved). */
   externalImports: number;
   /**
-   * Files that failed to read or parse and are therefore missing from the graph.
-   * Should be zero; anything else means the graph is incomplete and every importance
-   * score is computed over a partial picture.
+   * Files that failed to read or parse and so aren't in the graph. Should be zero.
+   * Anything else means the graph is incomplete and every score is based on a partial
+   * picture.
    */
   parseFailures: number;
   byLanguage: Record<string, number>;
-  /** True when git history was available and churn was measured. */
+  /** True if we had git history and could measure churn. */
   churnAvailable: boolean;
 }

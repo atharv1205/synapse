@@ -3,13 +3,13 @@ import path from "node:path";
 import type { Language, SourceFile } from "../types.js";
 import type { ImportRef } from "../parse/extract.js";
 
-/** Extensions tried, in order, when a JS/TS specifier has no usable extension. */
+/** Extensions to try, in order, when a JS/TS specifier doesn't have a usable one. */
 const JS_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"];
 const JS_INDEX_FILES = JS_EXTENSIONS.map((ext) => `index${ext}`);
 
 /**
- * TypeScript's NodeNext resolution has source files import `./foo.js` to mean `./foo.ts`.
- * Maps a runtime extension back to the source extensions that could have produced it.
+ * With NodeNext, TS source imports `./foo.js` when it means `./foo.ts`. This maps a
+ * runtime extension back to the source extensions it could have come from.
  */
 const RUNTIME_TO_SOURCE: Record<string, string[]> = {
   ".js": [".ts", ".tsx", ".js", ".jsx"],
@@ -22,19 +22,19 @@ function dirOf(filePath: string): string {
   return dir === "." ? "" : dir;
 }
 
-/** An index of everything in the repo that an import could point at. */
+/** Index of everything in the repo an import could point at. */
 export class ImportResolver {
-  /** Every repo-relative source path, for O(1) existence checks. */
+  /** Every repo-relative source path, for quick existence checks. */
   private readonly files: Set<string>;
-  /** Workspace/monorepo package name -> directory, so `@scope/pkg` resolves internally. */
+  /** Workspace package name -> folder, so `@scope/pkg` resolves inside the repo. */
   private readonly packages = new Map<string, string>();
-  /** Go module path -> the directory holding its go.mod. */
+  /** Go module path -> the folder with its go.mod. */
   private readonly goModules = new Map<string, string>();
-  /** Directory -> the source files directly in it, for packages that are directories. */
+  /** Folder -> the source files directly in it (Go and Java packages are folders). */
   private readonly byDirectory = new Map<string, string[]>();
-  /** File name -> every path with that name, for suffix lookups of Java classes. */
+  /** File name -> every path with that name, for finding Java classes by suffix. */
   private readonly byName = new Map<string, string[]>();
-  /** Java and Go answers depend only on the specifier, and repeat across thousands of files. */
+  /** Java and Go lookups only depend on the specifier and repeat a lot, so cache them. */
   private readonly cache = new Map<string, string[]>();
 
   private constructor(files: SourceFile[]) {
@@ -53,9 +53,8 @@ export class ImportResolver {
   }
 
   /**
-   * Builds the index. Reads every package.json outside node_modules so that
-   * bare specifiers pointing at sibling workspace packages resolve to real files
-   * rather than being written off as external.
+   * Build the index. We read every package.json outside node_modules so bare imports of
+   * sibling workspace packages resolve to real files instead of counting as external.
    */
   static async create(root: string, files: SourceFile[], manifestPaths: string[]): Promise<ImportResolver> {
     const resolver = new ImportResolver(files);
@@ -68,7 +67,7 @@ export class ImportResolver {
           const module = /^\s*module\s+"?([^\s"]+)"?/m.exec(raw)?.[1];
           if (module) resolver.goModules.set(module, dir);
         } catch {
-          // An unreadable go.mod just means its module's imports read as external.
+          // Can't read this go.mod? Then its module's imports just count as external.
         }
         continue;
       }
@@ -79,7 +78,7 @@ export class ImportResolver {
           resolver.packages.set(name, dir);
         }
       } catch {
-        // A malformed or unreadable package.json just means no workspace alias from it.
+        // Broken or unreadable package.json just means no workspace alias from it.
       }
     }
 
@@ -90,7 +89,7 @@ export class ImportResolver {
     return this.files.has(candidate) ? candidate : undefined;
   }
 
-  /** Tries `base` itself, then `base + ext`, then `base/index.*`. */
+  /** Try `base`, then `base + ext`, then `base/index.*`. */
   private resolveJsTarget(base: string): string | undefined {
     const ext = path.posix.extname(base);
 
@@ -118,7 +117,7 @@ export class ImportResolver {
     return undefined;
   }
 
-  /** Tries `base.py`, `base.pyi`, then `base/__init__.py`. */
+  /** Try `base.py`, `base.pyi`, then `base/__init__.py`. */
   private resolvePyTarget(base: string): string | undefined {
     return (
       this.has(`${base}.py`) ??
@@ -134,9 +133,9 @@ export class ImportResolver {
       return this.resolveJsTarget(base);
     }
 
-    if (specifier.startsWith("/")) return undefined; // absolute filesystem import; not ours to resolve
+    if (specifier.startsWith("/")) return undefined; // absolute filesystem path, not ours to resolve
 
-    // Bare specifier: a workspace package is internal, anything else is a dependency.
+    // Bare specifier: a workspace package is ours, anything else is a dependency.
     for (const [name, dir] of this.packages) {
       if (specifier !== name && !specifier.startsWith(`${name}/`)) continue;
       const subpath = specifier.slice(name.length).replace(/^\//, "");
@@ -151,7 +150,7 @@ export class ImportResolver {
     const dots = /^\.+/.exec(specifier)?.[0].length ?? 0;
 
     if (dots > 0) {
-      // One dot is the current package, each extra dot walks one directory up.
+      // One dot is the current package, every extra dot goes up a folder.
       let dir = path.posix.dirname(fromFile);
       for (let i = 1; i < dots; i++) dir = path.posix.dirname(dir);
       if (dir === ".") dir = "";
@@ -162,8 +161,8 @@ export class ImportResolver {
     const parts = specifier.split(".").filter(Boolean);
     if (parts.length === 0) return undefined;
 
-    // Absolute imports are relative to some source root. Try the repo root, then
-    // each ancestor of the importing file, which covers `src/` and similar layouts.
+    // Absolute imports are relative to some source root. Try the repo root and then each
+    // parent folder of the importing file, which handles `src/` style layouts.
     const roots = [""];
     let dir = path.posix.dirname(fromFile);
     while (dir !== "." && dir !== "") {
@@ -178,7 +177,7 @@ export class ImportResolver {
     return undefined;
   }
 
-  /** Directories whose path ends with `suffix` (`com/acme`), at any source root. */
+  /** Folders whose path ends with `suffix` (like `com/acme`), under any source root. */
   private directoriesEndingWith(suffix: string): string[] {
     const found: string[] = [];
     for (const dir of this.byDirectory.keys()) {
@@ -189,9 +188,9 @@ export class ImportResolver {
 
   /**
    * `com.acme.Foo` -> `…/com/acme/Foo.java` under any source root (`src/main/java`,
-   * `src/test/java`, a module's own). A static import or a nested class names more than
-   * the file, so trailing segments drop off until a file matches.
-   * `com.acme.*` -> every file of that package, in every source root that has it.
+   * `src/test/java`, a module's own). Static imports and nested classes name more than
+   * the file, so we drop trailing segments until something matches.
+   * `com.acme.*` -> every file in that package, in every source root that has it.
    */
   private resolveJava(fromFile: string, specifier: string): string[] {
     if (specifier === "*") return this.byDirectory.get(dirOf(fromFile)) ?? [];
@@ -212,17 +211,16 @@ export class ImportResolver {
       const name = `${parts[end - 1]}.java`;
       const suffix = [...parts.slice(0, end - 1), name].join("/");
       const matches = (this.byName.get(name) ?? []).filter((f) => f === suffix || f.endsWith(`/${suffix}`));
-      // A class name alone (end = 1) would match any file of that name anywhere.
+      // Just a class name (end = 1) would match a file with that name anywhere, so don't.
       if (matches.length > 0 && (end > 1 || parts.length === 1)) return matches;
     }
     return [];
   }
 
   /**
-   * A Go import path names a package, which is a directory: the module whose path
-   * prefixes it, plus the rest. `_test.go` files are not part of the importable package.
-   * `.` is the importing file's own package, test files included when the importer is
-   * one.
+   * A Go import path is a package, i.e. a folder: the module that prefixes it plus the
+   * rest of the path. `_test.go` files aren't part of what you can import. `.` means the
+   * importer's own package, and includes test files if the importer is a test.
    */
   private resolveGo(fromFile: string, specifier: string): string[] {
     const goFiles = (dir: string, withTests: boolean) =>
@@ -241,10 +239,9 @@ export class ImportResolver {
   }
 
   /**
-   * Maps an import to the repo-relative paths it points at: none when the target is
-   * external (a dependency, the stdlib) or could not be resolved, one for a JavaScript or
-   * Python module, and possibly several for a Java or Go package, which the caller
-   * narrows to the files declaring what the importer uses.
+   * Map an import to the repo paths it points at. None if it's external (a dependency,
+   * the stdlib) or unresolved, one for a JS or Python module, maybe several for a Java or
+   * Go package. The caller narrows those down to files declaring what's used.
    */
   resolveAll(fromFile: string, language: Language, ref: ImportRef): string[] {
     let targets: string[];
@@ -255,11 +252,11 @@ export class ImportResolver {
         language === "python" ? this.resolvePy(fromFile, ref.specifier) : this.resolveJs(fromFile, ref.specifier);
       targets = target ? [target] : [];
     }
-    // A file importing itself adds nothing but a self-loop.
+    // A file importing itself would only add a self-loop.
     return targets.filter((target) => target !== fromFile);
   }
 
-  /** The first of `resolveAll`'s targets, for imports that name one module. */
+  /** First result of `resolveAll`, for imports that point at a single module. */
   resolve(fromFile: string, language: Language, ref: ImportRef): string | undefined {
     return this.resolveAll(fromFile, language, ref)[0];
   }

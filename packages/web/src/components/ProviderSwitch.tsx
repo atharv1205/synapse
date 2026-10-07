@@ -13,8 +13,8 @@ function stored(): ProviderName | undefined {
 }
 
 /**
- * The provider this viewer picked, remembered in this browser only. Undefined until they
- * pick one, so the server's own default (whatever `serve` was started with) applies.
+ * The provider this person picked, remembered in this browser only. Undefined until they
+ * pick, so the server's default (whatever `serve` started with) applies.
  */
 export function useProviderChoice(): [ProviderName | undefined, (provider: ProviderName) => void] {
   const [choice, setChoice] = useState<ProviderName | undefined>(stored);
@@ -23,7 +23,7 @@ export function useProviderChoice(): [ProviderName | undefined, (provider: Provi
     try {
       localStorage.setItem(STORAGE_KEY, provider);
     } catch {
-      // Private windows and blocked storage just mean the choice is not remembered.
+      // Private window or blocked storage just means we don't remember the pick.
     }
   }, []);
   return [choice, choose];
@@ -33,13 +33,13 @@ export interface ProviderSwitchProps {
   value: ProviderName;
   providers: Record<ProviderName, ProviderAvailability>;
   onChange(provider: ProviderName): void;
-  /** Names the control for screen readers, e.g. "Answer with". */
+  /** Name of the control for screen readers, e.g. "Answer with". */
   label: string;
 }
 
 /**
- * Local, Gemini or Claude. A provider that cannot be used right now stays visible but
- * disabled, with the reason as its tooltip, so the fix is one hover away rather than a
+ * Local, Gemini or Claude. A provider that can't be used right now stays visible but
+ * disabled, with the reason in its tooltip, so the fix is one hover away instead of a
  * mystery.
  */
 export function ProviderSwitch({ value, providers, onChange, label }: ProviderSwitchProps) {

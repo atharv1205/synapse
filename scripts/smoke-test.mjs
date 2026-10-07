@@ -1,15 +1,10 @@
-#!/usr/bin/env node
-/**
- * Installs the packed synapse-map tarball into an empty directory and runs it the way a
- * user would, so packaging bugs surface before release rather than after.
- *
- *   npm run release:pack && node scripts/smoke-test.mjs
- *
- * No model is needed: the analysis skips summaries, and nothing calls Ollama. Checks:
- *   - the package installs, and `synapse-map --version` matches its manifest
- *   - `analyze` builds a graph of this repository from the installed copy
- *   - `serve` answers its pages, its API and a missing route with the right codes
- */
+// Installs the packed tarball into an empty folder and runs it like a user would, so we
+// catch packaging problems before publishing.
+//
+//   npm run release:pack && node scripts/smoke-test.mjs
+//
+// No model needed (summaries are skipped). Checks that it installs, --version matches,
+// analyze works on this repo, and serve answers its pages/API/404s properly.
 import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -54,8 +49,7 @@ try {
   check(version === manifest.version, `--version printed ${version}, expected ${manifest.version}`);
 
   step("analyze this repository");
-  // --skip-github keeps this hermetic: in CI the checkout has a GitHub remote, and the
-  // unauthenticated API allows 60 requests an hour per runner IP.
+  // --skip-github so CI doesn't eat into GitHub's 60 req/hour limit
   execFileSync(bin, ["analyze", ROOT, "--skip-summarize", "--skip-github", "--out", cache], {
     stdio: "inherit",
     shell: process.platform === "win32",

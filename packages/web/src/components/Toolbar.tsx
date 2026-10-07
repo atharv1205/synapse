@@ -8,14 +8,14 @@ import type { ColorMode } from "./GraphScene";
 import { ProviderSwitch } from "./ProviderSwitch";
 
 export interface ToolbarProps {
-  /** The served repository's directory name, from /api/status. */
+  /** Folder name of the served repo, from /api/status. */
   repoName?: string;
-  /** GitHub's details, when the repository is on GitHub. */
+  /** GitHub's details, if the repo is on GitHub. */
   repository?: RepositoryInfo;
   fileCount: number;
   /** How many nodes are at or above the current cutoff. */
   visibleCount: number;
-  /** Share of the graph shown prominently, 0-100. */
+  /** Percentage of the graph that's highlighted, 0-100. */
   topPercent: number;
   colorMode: ColorMode;
   indexing: boolean;
@@ -28,14 +28,14 @@ export interface ToolbarProps {
   onProviderChange(provider: ProviderName): void;
   viewMode: ViewMode;
   onViewModeChange(mode: ViewMode): void;
-  /** Folders currently showing their files; offers "Collapse all" when above zero. */
+  /** Folders currently showing their files. If it's above zero we show "Collapse all". */
   expandedCount: number;
   onCollapseAll(): void;
 }
 
 /**
- * Finest step the slider offers. On a very large graph 0.1% is still ~19 files, which
- * is a sensible smallest increment; on a small one the count clamps to at least 1.
+ * Smallest slider step. On a really big graph 0.1% is still about 19 files, which is a
+ * sensible minimum; on a small one the count never drops below 1.
  */
 const STEP = 0.1;
 
@@ -95,12 +95,10 @@ export function Toolbar({
         </Link>
       </div>
 
-      {/*
-        The slider works in rank percentile, not raw importance. PageRank is heavily
-        right-skewed — on an 18,851-node graph the top node scored 1.0 and the 300th
-        scored 0.0009 — so a linear importance slider put every useful value inside its
-        first step. Percentile is scale-free: half the track always means half the files.
-      */}
+      {/* The slider goes by rank percentile, not raw importance. PageRank is really skewed:
+        on an 18,851-node graph the top node scored 1.0 and the 300th scored 0.0009, so a
+        linear slider put every useful value in its first step. Percentile doesn't care
+        about scale; half the track is always half the files. */}
       <label className="toolbar-group">
         <span className="control-label">Top {topPercent.toFixed(1)}%</span>
         <input

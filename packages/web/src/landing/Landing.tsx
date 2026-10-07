@@ -7,10 +7,10 @@ import { AnalyseForm } from "./AnalyseForm";
 import { CommandBlock } from "./CommandBlock";
 import "./landing.css";
 
-// three.js is most of the bundle. Splitting the hero out lets the words paint first.
+// three.js is most of the bundle. Splitting the hero out lets the text show up first.
 const HeroGraph = lazy(() => import("./HeroGraph"));
 
-/** What this page knows about a locally running server, if there is one. */
+/** What this page knows about a locally running server, if any. */
 type Served =
   | { state: "checking" }
   | { state: "absent" }
@@ -19,7 +19,7 @@ type Served =
       name: string;
       fileCount?: number;
       analysing: boolean;
-      /** Whether anything has been analysed yet in this session. */
+      /** Whether anything's been analysed yet in this session. */
       hasGraph: boolean;
       providers: Status["providers"];
       defaultProvider: Status["defaultProvider"];
@@ -27,9 +27,9 @@ type Served =
     };
 
 /**
- * The same build is served by `synapse serve` and can be hosted statically. Asking
- * /api/status tells the two apart: when a server answers, the page offers to open the
- * repository it is serving; when none does, it points at the setup steps instead.
+ * The same build gets served by `synapse serve` and can also be hosted as static files.
+ * Asking /api/status tells us which: if a server answers, we offer to open the repo it's
+ * serving; if not, we point to the setup steps.
  */
 function useServed(): Served {
   const [served, setServed] = useState<Served>({ state: "checking" });
@@ -61,7 +61,7 @@ function useServed(): Served {
 }
 
 const CLI = `npx ${SITE.packageName}`;
-/** The example target every usage step points at, so the steps chain together. */
+/** The example target every usage step uses, so the steps follow on from each other. */
 const PROJECT = "~/code/your-project";
 
 const PIPELINE = [
@@ -303,7 +303,7 @@ export function Landing() {
   );
 }
 
-/** The wordmark's glyph: two nodes and the connection between them. */
+/** The logo glyph: two nodes and the link between them. */
 function SynapseMark() {
   return (
     <svg className="mark" viewBox="0 0 24 24" aria-hidden="true">

@@ -1,6 +1,6 @@
 /**
- * `d3-force-3d` ships no type declarations and has no @types package, so this
- * declares just the surface the layout uses rather than taking on a dependency.
+ * `d3-force-3d` has no types and no @types package, so this declares just the bits the
+ * layout uses instead of adding a dependency.
  */
 declare module "d3-force-3d" {
   export interface SimNode {

@@ -1,13 +1,13 @@
 import { simpleGit, type SimpleGit } from "simple-git";
 
 export interface ChurnResult {
-  /** Repo-relative path -> number of commits that touched it. */
+  /** Repo-relative path -> how many commits touched it. */
   counts: Map<string, number>;
-  /** False when the target is not a git repo, in which case every count is 0. */
+  /** False if the target isn't a git repo. All counts are 0 then. */
   available: boolean;
 }
 
-/** How many `git log` processes to keep in flight at once. */
+/** How many `git log` processes we run at once. */
 const CONCURRENCY = 16;
 
 async function isGitRepo(git: SimpleGit): Promise<boolean> {
@@ -19,12 +19,11 @@ async function isGitRepo(git: SimpleGit): Promise<boolean> {
 }
 
 /**
- * Counts commits touching each file with `git log --follow`, so a file that was
- * renamed keeps the history it accumulated under its old name.
+ * Count the commits touching each file with `git log --follow`, so a renamed file keeps
+ * the history from its old name.
  *
- * `--follow` only works one path at a time, so this is one git process per file.
- * That is fine for the repo sizes this tool targets, but it is the slowest step
- * of an analysis by a wide margin on very large repositories.
+ * `--follow` only takes one path, so it's one git process per file. Fine for most repos,
+ * but on really big ones it's by far the slowest step.
  */
 export async function measureChurn(root: string, paths: string[]): Promise<ChurnResult> {
   const git = simpleGit(root);
@@ -55,7 +54,7 @@ async function countCommits(git: SimpleGit, filePath: string): Promise<number> {
     const trimmed = out.trim();
     return trimmed === "" ? 0 : trimmed.split("\n").length;
   } catch {
-    // Untracked or newly added files have no history; that is a churn of 0, not an error.
+    // Untracked or brand new files have no history. That's churn 0, not an error.
     return 0;
   }
 }

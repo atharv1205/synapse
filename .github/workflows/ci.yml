@@ -1,6 +1,6 @@
-# Builds, tests and smoke-tests the packaged CLI on every push and pull request.
-# Nothing here publishes: the tarball is packed, installed into a scratch directory and
-# run, then thrown away.
+# Build, test and smoke-test the packaged CLI on every push and PR.
+# Nothing gets published here: the tarball is packed, installed in a scratch folder, run,
+# and thrown away.
 name: CI
 
 on:
@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # Churn reads git history; a shallow checkout would give every file one commit.
+          # Churn reads git history. A shallow checkout would give every file one commit.
           fetch-depth: 0
 
       - uses: actions/setup-node@v7
@@ -38,11 +38,12 @@ jobs:
 
       - run: npm ci
 
-      # Builds every package in dependency order, then runs the core, server and CLI suites.
+      # Builds all packages in order, then runs every test suite.
       - run: npm test
 
-      # Assembles release/synapse-map-<version>.tgz, failing on any undeclared import.
+      # Builds release/synapse-map-<version>.tgz. Fails if anything imports an undeclared
+      # package.
       - run: npm run release:pack
 
-      # Installs that tarball into an empty directory and runs analyze and serve from it.
+      # Installs that tarball in an empty folder and runs analyze and serve from it.
       - run: npm run smoke

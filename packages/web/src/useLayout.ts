@@ -10,19 +10,18 @@ export interface LayoutProgress {
 
 export interface LayoutState {
   layout?: Layout;
-  /** Set only once a layout has run long enough to be worth showing progress for. */
+  /** Only set once the layout has run long enough that showing progress is worth it. */
   progress?: LayoutProgress;
   error?: string;
 }
 
 /**
- * Lays a graph out in a Web Worker, once per graph.
+ * Lay a graph out in a Web Worker, once per graph.
  *
- * On home-assistant/core (18,851 files) the simulation is 150 ticks at roughly a
- * quarter of a second each. Run inside a useMemo, as it used to be, that froze the tab
- * for 38 seconds on a blank screen; in a worker the page keeps painting and can show
- * how far along it is. Only flat typed arrays cross the boundary in either direction,
- * and both are transferred rather than copied.
+ * On home-assistant/core (18,851 files) the simulation is 150 ticks at about a quarter
+ * second each. Inside a useMemo, like it used to be, that froze the tab for 38 seconds on
+ * a blank screen. In a worker the page keeps rendering and can show progress. Only flat
+ * typed arrays go back and forth, and both ways they're transferred, not copied.
  */
 export function useLayout(graph: RepoGraph | undefined): LayoutState {
   const [state, setState] = useState<LayoutState>({});
@@ -48,8 +47,9 @@ export function useLayout(graph: RepoGraph | undefined): LayoutState {
       }
     };
 
-    // A worker that fails to load or throws outside the handler never posts, so this is
-    // the only way that failure surfaces — without it the app would wait forever.
+    // A worker that fails to load, or throws outside the handler, never posts anything,
+    // so this is the only place that failure shows up. Without it the app would wait
+    // forever.
     worker.onerror = (event) => {
       event.preventDefault();
       worker.terminate();
@@ -63,8 +63,8 @@ export function useLayout(graph: RepoGraph | undefined): LayoutState {
       input.linkDistance.buffer,
     ]);
 
-    // Terminating is what cancels a run: the simulation is one synchronous loop, so
-    // nothing short of killing the worker stops it early.
+    // Terminating is how we cancel. The simulation is one synchronous loop, so killing
+    // the worker is the only way to stop it early.
     return () => worker.terminate();
   }, [graph]);
 

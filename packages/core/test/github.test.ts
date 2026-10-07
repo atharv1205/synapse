@@ -9,7 +9,7 @@ import { createFixture, type Fixture } from "./fixture.js";
 const git = promisify(execFile);
 const TOKEN = "ghp_githubTestToken0123456789";
 
-/** A stand-in for fetch that records requests and answers from a script. */
+/** Fake fetch that records requests and answers from a script. */
 function fakeFetch(answer: (url: string) => Response | Error) {
   const calls: Array<{ url: string; headers: Record<string, string> }> = [];
   const impl = (async (input: string | URL, init?: RequestInit) => {

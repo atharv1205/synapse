@@ -20,10 +20,10 @@ import type { RepoGraph } from "../src/types.js";
 import { createFixture, type Fixture } from "./fixture.js";
 
 /**
- * A stand-in for the Anthropic API, recording every prompt and schema it is handed.
+ * Fake Anthropic API that records every prompt and schema it gets.
  *
- * It implements the full LlmProvider surface — including an `embed` that throws —
- * so the tests exercise the same contract the real client is held to.
+ * It implements all of LlmProvider (including an `embed` that throws), so the tests hold
+ * it to the same contract as the real client.
  */
 class FakeAnthropic implements LlmProvider {
   readonly name: "anthropic" | "ollama";
@@ -39,7 +39,7 @@ class FakeAnthropic implements LlmProvider {
     private readonly behaviour: {
       preflight?: Preflight;
       throws?: string;
-      /** Lets one fake stand in for either provider, to compare their prompts. */
+      /** Lets one fake act as either provider, so we can compare their prompts. */
       as?: "anthropic" | "ollama";
       model?: string;
     } = {},
@@ -77,7 +77,7 @@ class FakeAnthropic implements LlmProvider {
   }
 }
 
-/** Deterministic fake embeddings, matching the pattern used in the RAG tests. */
+/** Deterministic fake embeddings, same idea as in the RAG tests. */
 const VOCAB = ["registry", "helper", "python", "accumulator", "orphan", "import", "boot", "double"];
 const fakeVector = (text: string) =>
   VOCAB.map((term) => text.toLowerCase().split(term).length - 1);
@@ -94,7 +94,7 @@ class FakeEmbedder implements EmbeddingBackend {
   }
 }
 
-/** Runs `body` with ANTHROPIC_API_KEY set or cleared, restoring it afterwards. */
+/** Run `body` with ANTHROPIC_API_KEY set or unset, and put it back afterwards. */
 async function withApiKey(value: string | undefined, body: () => Promise<void>): Promise<void> {
   const original = process.env[API_KEY_ENV];
   if (value === undefined) delete process.env[API_KEY_ENV];
@@ -225,9 +225,9 @@ describe("prompts are shared across providers", () => {
   });
 
   it("sends byte-identical summarisation prompts to both providers", async () => {
-    // The strongest form of the claim: same graph, same files, two providers, and the
-    // prompts must not differ by a character. Comparing the two runs against each other
-    // avoids reconstructing a prompt by hand and getting the reconstruction wrong.
+    // The strongest version of the claim: same graph, same files, two providers, and the
+    // prompts can't differ by a single character. Comparing the two runs to each other
+    // saves us from rebuilding a prompt by hand and getting that wrong.
     const viaOllama = new FakeAnthropic({ as: "ollama", model: "fake-local" });
     await summarizeGraph(graph, {
       root: fixture.root,
@@ -247,9 +247,9 @@ describe("prompts are shared across providers", () => {
     assert.equal(viaAnthropic.prompts.length, viaOllama.prompts.length);
     assert.ok(viaOllama.prompts.length > 0, "the run must actually have summarised something");
 
-    // Sorted before comparing: summarisation runs two workers off a shared queue, so
-    // the order prompts are recorded in is not deterministic. The claim under test is
-    // that the same set of prompts is produced, not that they are produced in step.
+    // Sort before comparing. Summarising runs two workers off one queue, so the order
+    // prompts get recorded in isn't fixed. We're checking the same prompts get produced,
+    // not that they come in the same order.
     assert.deepEqual([...viaAnthropic.prompts].sort(), [...viaOllama.prompts].sort());
     assert.ok(viaOllama.prompts.every((p) => p.includes("You are documenting one file")));
   });
@@ -354,7 +354,7 @@ describe("prompts are shared across providers", () => {
     assert.equal(result.ok, false);
     const message = result.message ?? "";
     assert.match(message, /Could not reach Ollama/);
-    // Without this the user sees an Ollama error after asking for Anthropic.
+    // Otherwise the user picks Anthropic and gets an Ollama error with no explanation.
     assert.match(message, /embeddings/i);
   });
 

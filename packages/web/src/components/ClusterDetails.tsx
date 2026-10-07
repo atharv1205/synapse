@@ -16,16 +16,16 @@ export interface ClusterDetailsProps {
 /** How many of a folder's files the panel lists. */
 const TOP_FILES = 8;
 
-/** The question "Ask about this folder" pre-fills. */
+/** The question "Ask about this folder" fills in. */
 export function questionForFolder(cluster: Cluster): string {
   const where = cluster.folder || "the repository root";
   return `What is ${where} responsible for, and which of its files matter most?`;
 }
 
 /**
- * A folder bubble's details: what it holds, its most important files, and a way in.
+ * Details for a folder bubble: what's in it, its most important files, and a way in.
  * Expanding swaps the bubble for its files in place; opening a file expands the folder
- * and selects the file.
+ * and selects that file.
  */
 export function ClusterDetails({
   cluster,

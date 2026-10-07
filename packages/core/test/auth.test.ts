@@ -17,18 +17,18 @@ import type { Preflight } from "../src/llm/types.js";
 import { createFixture, type Fixture } from "./fixture.js";
 
 /**
- * A token distinctive enough that a substring search cannot produce a false negative,
- * and that would be obvious if it appeared anywhere it should not.
+ * A token weird enough that a substring search can't miss it, and that would stand out
+ * anywhere it shouldn't be.
  */
 const TOKEN = "ghp_SYNAPSE0TEST0TOKEN0SHOULD0NEVER0APPEAR";
 
 /**
- * A host that refuses immediately, so clone failures are exercised without touching the
- * network or waiting on a DNS timeout.
+ * A host that refuses straight away, so we can test clone failures without the network or
+ * a DNS timeout.
  */
 const DEAD_URL = "https://127.0.0.1:1/owner/private-repo.git";
 
-/** Recursively lists every file under a directory. */
+/** List every file under a folder, recursively. */
 async function filesUnder(dir: string): Promise<string[]> {
   const out: string[] = [];
   async function walk(current: string): Promise<void> {
@@ -116,8 +116,8 @@ describe("the git environment", () => {
 
   it("resets inherited credential helpers before adding its own", () => {
     const env = cloneEnv(TOKEN, { PATH: "/usr/bin" });
-    // An empty first entry is how git discards helpers from the user's own config,
-    // so a system keychain cannot answer the prompt instead.
+    // An empty first entry is how git drops helpers from the user's own config, so their
+    // keychain can't answer instead.
     assert.equal(env.GIT_CONFIG_KEY_0, "credential.helper");
     assert.equal(env.GIT_CONFIG_VALUE_0, "");
     assert.equal(env.GIT_CONFIG_KEY_1, "credential.helper");
@@ -147,7 +147,7 @@ describe("the git environment", () => {
     const env = cloneEnv(undefined, { PATH: "/usr/bin" });
     assert.equal(env.GIT_CONFIG_COUNT, undefined);
     assert.equal(env.SYNAPSE_GIT_TOKEN, undefined);
-    // Still disables the prompt, so a private repo fails fast instead of hanging.
+    // The prompt is still off, so a private repo fails fast instead of hanging.
     assert.equal(env.GIT_TERMINAL_PROMPT, "0");
   });
 
@@ -177,8 +177,8 @@ describe("cloneErrorDetail", () => {
   });
 
   it("scrubs a credential embedded in the URL when no token was passed", () => {
-    // The token arrives only inside the URL, so there is no known secret to search for;
-    // git still quotes it back mid-sentence.
+    // The token is only inside the URL here, so there's no known secret to search for,
+    // and git still quotes it back mid-sentence.
     const detail = cloneErrorDetail({
       stderr: `fatal: could not read Password for 'https://${TOKEN}@github.com': terminal prompts disabled`,
     });
@@ -198,7 +198,8 @@ describe("clone failures", () => {
       () => resolveSource(DEAD_URL, { depth: 1 }),
       (error: unknown) => {
         const message = (error as Error).message;
-        // Connection-refused is not an auth failure, so it should report plainly.
+        // Connection refused isn't an auth problem, so the message should just say what
+        // happened.
         assert.match(message, /Failed to clone|Could not clone/);
         assert.match(message, /127\.0\.0\.1/);
         return true;
@@ -207,8 +208,8 @@ describe("clone failures", () => {
   });
 
   it("names the private-repo remedy on an auth-shaped failure", () => {
-    // GitHub answers an unauthenticated request for a private repo with "not found",
-    // which is also what a typo produces — the message has to cover both.
+    // GitHub says "not found" for a private repo without auth, and also for a typo, so
+    // the message has to cover both.
     const message = cloneFailureMessage(
       "https://github.com/owner/private-repo.git",
       "remote: Repository not found.\nfatal: repository not found",
@@ -230,7 +231,7 @@ describe("clone failures", () => {
     assert.match(message, /with the token provided/);
     assert.match(message, /expired/);
     assert.match(message, /Contents: read|`repo` scope/);
-    // Telling someone to set a token they already set would be useless.
+    // No point telling someone to set a token they already set.
     assert.doesNotMatch(message, /export GITHUB_TOKEN/);
   });
 
@@ -286,7 +287,7 @@ describe("the token never reaches an output file", () => {
   let fixture: Fixture;
   let cacheDir: string;
 
-  /** Fakes so the pass runs without a model; neither is given the token. */
+  /** Fakes so this runs without a model. Neither one gets the token. */
   const summarizer: SummarizerBackend = {
     model: "fake-model",
     async preflight(): Promise<Preflight> {
@@ -320,8 +321,8 @@ describe("the token never reaches an output file", () => {
   });
 
   it("writes graph.json, summaries.json and the index without it", async () => {
-    // A full run with a token in hand: local paths ignore it, which is exactly the
-    // regression this guards — nothing should echo it into an artefact regardless.
+    // A full run with a token passed in. Local paths ignore it, which is exactly the
+    // regression this guards: nothing should ever echo it into an output file.
     const graph = await analyze(fixture.root, { token: TOKEN, skipSummarize: true });
 
     await summarizeGraph(graph, { root: fixture.root, cacheDir, backend: summarizer, topN: 3 });
@@ -342,8 +343,8 @@ describe("the token never reaches an output file", () => {
   });
 
   it("records a redacted source when the input carried a credential", async () => {
-    // resolveSource redacts before anything is stored, so a pasted credential cannot
-    // reach graph.source even though the clone itself uses the original URL.
+    // resolveSource redacts before storing anything, so a pasted credential can't end up
+    // in graph.source even though the clone uses the original URL.
     const graph = await analyze(fixture.root, { skipSummarize: true });
     graph.source = redactUrl(`https://${TOKEN}@github.com/owner/repo.git`);
 

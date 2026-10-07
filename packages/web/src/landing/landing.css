@@ -1,9 +1,9 @@
 /*
- * The landing page. Everything is scoped under .landing, for the same reason the tool
- * scopes under .app: both sheets stay loaded once visited.
+ * The landing page. Everything is scoped under .landing, same reason the tool is scoped
+ * under .app: once visited, both stylesheets stay loaded.
  *
- * The page spends its boldness in one place, the live graph in the hero. Everything
- * else is hairline rules and type on the darkfield, with no cards and no decoration.
+ * The page puts all its boldness in one spot, the live graph in the hero. Everything else
+ * is thin rules and type on the dark background. No cards, no decoration.
  */
 
 .landing {
@@ -330,9 +330,9 @@
 }
 
 /*
- * The pipeline reads left to right along one line, the way a signal crosses a
- * synapse. Each stage's node takes the next stain on the importance ramp, since each
- * stage refines the data a step further toward a ranked answer.
+ * The pipeline reads left to right along one line, like a signal crossing a synapse. Each
+ * stage's node takes the next colour on the importance ramp, since each step gets the
+ * data closer to a ranked answer.
  */
 .landing .pipeline {
   display: grid;
@@ -430,8 +430,8 @@
   counter-reset: step;
 }
 
-/* The third row takes up whatever height the command block adds, so the heading and
-   its description stay together instead of being pushed apart by a tall command. */
+/* The third row soaks up whatever height the command block adds, so the heading and its
+   description stay together instead of being pushed apart by a tall command. */
 .landing .steps > li {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
@@ -487,8 +487,9 @@
   line-height: 1.75;
 }
 
-/* Long commands wrap rather than scroll out of sight, with the prompt hanging in the
-   margin so a wrapped line is visibly a continuation. Copying uses the original text. */
+/* Long commands wrap instead of scrolling out of view, with the prompt hanging in the
+   margin so a wrapped line clearly continues the one above. Copying uses the original
+   text. */
 .landing .command code {
   display: block;
   padding-left: 2ch;
@@ -607,7 +608,7 @@
     margin-top: 6px;
   }
 
-  /* The pipeline turns vertical: the line runs down the left edge. */
+  /* The pipeline goes vertical here, with the line running down the left edge. */
   .landing .pipeline {
     grid-template-columns: minmax(0, 1fr);
     gap: 24px;

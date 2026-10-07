@@ -1,7 +1,7 @@
 /*
- * The graph tool at /graph. Everything is scoped under .app or .splash: this sheet
- * loads with the tool's chunk and stays in the document afterwards, so an unscoped
- * element rule would leak into the landing page on the way back.
+ * The graph tool at /graph. Everything is scoped under .app or .splash: this stylesheet
+ * loads with the tool's chunk and stays in the page afterwards, so an unscoped rule would
+ * leak into the landing page when you go back.
  */
 
 .app {
@@ -166,8 +166,8 @@
   z-index: 2;
 }
 
-/* Translucent and blurred for a reason: the panels sit over a moving 3D scene, and a
-   frosted backdrop keeps their text legible without hiding the graph behind them. */
+/* Translucent and blurred on purpose: the panels sit on top of a moving 3D scene, and the
+   frosted background keeps the text readable without hiding the graph. */
 .app .panel {
   pointer-events: auto;
   background: color-mix(in srgb, var(--raised) 92%, transparent);
@@ -526,7 +526,7 @@
   margin: 6px 0 0;
 }
 
-/* An informational banner is not a fault, so it should not borrow the error styling. */
+/* An info banner isn't an error, so it shouldn't use the error styling. */
 .app .banner-info .remediation {
   background: color-mix(in srgb, var(--cyan) 5%, var(--field));
   border-color: color-mix(in srgb, var(--cyan) 30%, transparent);

@@ -1,10 +1,10 @@
 /**
- * Facts about the project that the landing page and the tool's chrome both show.
- * Kept in one place so publishing is a one-line change.
+ * Project info that both the landing page and the explorer show. All in one place so it's
+ * easy to change.
  */
 export const SITE = {
   name: "Synapse",
-  /** Every GitHub link on both pages reads it from here. */
+  /** Every GitHub link on both pages comes from here. */
   repositoryUrl: "https://github.com/atharv1205/synapse",
   /** The npm package the setup steps run with npx. */
   packageName: "synapse-map",

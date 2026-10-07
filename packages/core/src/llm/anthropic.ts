@@ -8,17 +8,17 @@ import {
 
 export const DEFAULT_ANTHROPIC_MODEL = "claude-opus-5";
 
-/** The only place the key is read from. It is never accepted as a flag or read from a file. */
+/** The key only ever comes from here. No flag, no file. */
 export const API_KEY_ENV = "ANTHROPIC_API_KEY";
 
 export interface AnthropicConfig {
   model?: string;
-  /** Request timeout in milliseconds. */
+  /** Request timeout in ms. */
   timeoutMs?: number;
   /**
-   * Effort level for the thinking budget. Summaries and short answers do not need
-   * deep reasoning, so this defaults low — thinking stays on, which avoids the
-   * failure modes of disabling it outright, but costs little.
+   * Thinking effort. Summaries and short answers don't need deep reasoning, so it's low
+   * by default. Thinking stays on (turning it off completely has its own problems) but
+   * it's cheap.
    */
   effort?: "low" | "medium" | "high";
 }
@@ -31,11 +31,11 @@ const MISSING_KEY_MESSAGE =
   "  Or use the local model instead with --provider ollama.";
 
 /**
- * Recursively marks every object in a schema as closed.
+ * Mark every object in a schema as closed, recursively.
  *
- * The Messages API's structured outputs require `additionalProperties: false` on each
- * object. Doing it here rather than in the shared schema keeps the prompt-building code
- * identical for both providers, which is the point of the abstraction.
+ * Structured outputs in the Messages API need `additionalProperties: false` on each
+ * object. Doing it here instead of in the shared schema means the prompt code stays the
+ * same for every provider, which is the whole point.
  */
 function closeSchema(schema: unknown): unknown {
   if (Array.isArray(schema)) return schema.map(closeSchema);
@@ -51,7 +51,7 @@ function closeSchema(schema: unknown): unknown {
   return out;
 }
 
-/** Turns the SDK's typed errors into messages that say what to actually do. */
+/** Turn the SDK's typed errors into messages that tell you what to do. */
 function describe(error: unknown, model: string): string {
   if (error instanceof Anthropic.AuthenticationError) {
     return `${API_KEY_ENV} was rejected by the API.\n  Check the key is current and not revoked.`;
@@ -75,10 +75,10 @@ function describe(error: unknown, model: string): string {
 }
 
 /**
- * Sends Synapse's existing prompts to the Anthropic Messages API.
+ * Sends our existing prompts to the Anthropic Messages API.
  *
- * This client builds no prompts of its own — summarisation and question answering hand
- * it exactly the text they would have sent to Ollama. Only the transport differs.
+ * It doesn't build any prompts itself. Summaries and Q&A give it exactly the text they'd
+ * send to Ollama; only the transport is different.
  */
 export class AnthropicClient implements LlmProvider {
   readonly name = "anthropic" as const;
@@ -100,7 +100,7 @@ export class AnthropicClient implements LlmProvider {
     return (process.env[API_KEY_ENV] ?? "").trim() !== "";
   }
 
-  /** Built lazily so constructing a client without a key is not itself an error. */
+  /** Created lazily, so making a client without a key isn't an error by itself. */
   private client(): Anthropic {
     if (!AnthropicClient.hasApiKey()) throw new Error(MISSING_KEY_MESSAGE);
     this.cached ??= new Anthropic({ timeout: this.timeoutMs });
@@ -108,8 +108,8 @@ export class AnthropicClient implements LlmProvider {
   }
 
   /**
-   * Checks the key is present and the model is real, without spending tokens —
-   * `models.retrieve` is a metadata lookup, not a completion.
+   * Check the key is set and the model exists without spending tokens. `models.retrieve`
+   * is just a metadata lookup.
    */
   async preflight(model: string = this.model): Promise<Preflight> {
     if (!AnthropicClient.hasApiKey()) return { ok: false, message: MISSING_KEY_MESSAGE };
@@ -137,7 +137,7 @@ export class AnthropicClient implements LlmProvider {
         );
       }
 
-      // content is a discriminated union; narrow before reading text.
+      // content is a union, narrow it before reading text.
       return response.content
         .filter((block): block is Anthropic.TextBlock => block.type === "text")
         .map((block) => block.text)

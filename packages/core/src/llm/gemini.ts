@@ -1,23 +1,23 @@
 import { ApiError, GoogleGenAI } from "@google/genai";
 import type { JsonSchema, LlmProvider, Preflight } from "./types.js";
 
-/** Google's recommended fast model for code and agentic work at the time of writing. */
+/** Google's recommended fast model for code and agent work, as of writing this. */
 export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
 
 /**
- * `gemini-embedding-001`, not the newer `gemini-embedding-2`: the newer model returns one
- * aggregated vector for a batch of inputs, and the index embeds chunks in batches, one
- * vector per chunk. 001 returns one per input.
+ * `gemini-embedding-001`, not the newer `gemini-embedding-2`. The newer one returns a
+ * single combined vector for a batch, but we embed chunks in batches and need one vector
+ * per chunk. 001 gives one per input.
  */
 export const DEFAULT_GEMINI_EMBED_MODEL = "gemini-embedding-001";
 
-/** The only place the key is read from. It is never accepted as a flag, a file or a form field. */
+/** The key only ever comes from here. Not a flag, not a file, not a form field. */
 export const GEMINI_KEY_ENV = "GEMINI_API_KEY";
 
 /**
- * Reduced from the model's default of 3,072, which Google lists as a recommended size.
- * Below 3,072 the vectors are not unit length; the index normalises every vector it
- * stores and every query, so cosine similarity stays correct.
+ * Smaller than the model's default 3,072 (Google lists 768 as a recommended size). Below
+ * 3,072 the vectors aren't unit length, but the index normalises everything it stores and
+ * every query, so cosine similarity still works.
  */
 const EMBED_DIMENSIONS = 768;
 
@@ -30,8 +30,8 @@ const MISSING_KEY_MESSAGE =
   "  Or use the local model instead with --provider ollama.";
 
 /**
- * The slice of the SDK this client uses. Tests substitute a fake here, the same way the
- * other providers are tested, so the suite never calls the real API.
+ * The bits of the SDK we actually use. Tests swap in a fake here, same as for the other
+ * providers, so the suite never calls the real API.
  */
 export interface GeminiTransport {
   models: {
@@ -55,13 +55,13 @@ export interface GeminiTransport {
 
 export interface GeminiConfig {
   model?: string;
-  /** Request timeout in milliseconds. */
+  /** Request timeout in ms. */
   timeoutMs?: number;
-  /** Replaces the SDK, for tests. */
+  /** Swap out the SDK (for tests). */
   transport?: GeminiTransport;
 }
 
-/** Turns the SDK's errors into messages that say what to actually do. */
+/** Turn the SDK's errors into messages that tell you what to do. */
 function describe(error: unknown, model: string): string {
   if (error instanceof ApiError) {
     if (error.status === 400 && /api key/i.test(error.message)) {
@@ -84,7 +84,7 @@ function describe(error: unknown, model: string): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Refusals arrive as a normal response with a reason attached, not as an error. */
+/** Refusals come back as a normal response with a reason, not as an error. */
 function refusal(response: Awaited<ReturnType<GeminiTransport["models"]["generateContent"]>>): string | undefined {
   const blocked = response.promptFeedback?.blockReason;
   if (blocked) return `Gemini declined the request (${blocked}).`;
@@ -96,11 +96,11 @@ function refusal(response: Awaited<ReturnType<GeminiTransport["models"]["generat
 }
 
 /**
- * Sends Synapse's existing prompts to the Gemini API, and embeds with it too.
+ * Sends our existing prompts to the Gemini API, and handles embeddings too.
  *
- * Like the other clients it builds no prompts of its own: summarisation and question
- * answering hand it exactly the text they would have sent to Ollama. Unlike Anthropic,
- * Gemini has an embeddings endpoint, so in Gemini mode nothing needs Ollama at all.
+ * Like the other clients it doesn't build prompts, it just gets the same text we'd send
+ * to Ollama. Unlike Anthropic, Gemini has an embeddings endpoint, so Gemini mode doesn't
+ * need Ollama at all.
  */
 export class GeminiClient implements LlmProvider {
   readonly name = "gemini" as const;
@@ -120,7 +120,7 @@ export class GeminiClient implements LlmProvider {
     return (process.env[GEMINI_KEY_ENV] ?? "").trim() !== "";
   }
 
-  /** Built lazily so constructing a client without a key is not itself an error. */
+  /** Created lazily, so making a client without a key isn't an error by itself. */
   private client(): GeminiTransport {
     if (this.config.transport) return this.config.transport;
     if (!GeminiClient.hasApiKey()) throw new Error(MISSING_KEY_MESSAGE);
@@ -131,7 +131,7 @@ export class GeminiClient implements LlmProvider {
     return this.cached;
   }
 
-  /** Checks the key is present and the model is real, without spending tokens. */
+  /** Check the key is set and the model exists, without spending tokens. */
   async preflight(model: string = this.model): Promise<Preflight> {
     if (!this.config.transport && !GeminiClient.hasApiKey()) {
       return { ok: false, message: MISSING_KEY_MESSAGE };
@@ -162,8 +162,8 @@ export class GeminiClient implements LlmProvider {
       this.client().models.generateContent({
         model: this.model,
         contents: prompt,
-        // Gemini takes JSON Schema as-is through responseJsonSchema, so the shared schema
-        // passes through unchanged, as it does for the other providers.
+        // Gemini accepts JSON Schema directly via responseJsonSchema, so the shared
+        // schema goes in untouched.
         config: { responseMimeType: "application/json", responseJsonSchema: schema, maxOutputTokens: 4_000 },
       }),
     );
@@ -184,8 +184,8 @@ export class GeminiClient implements LlmProvider {
     );
 
     const vectors = (response.embeddings ?? []).map((e) => e.values ?? []);
-    // A model that aggregates a batch into one vector would silently attach the same
-    // vector to every chunk. One vector per input, or a loud failure.
+    // If the model squashed the batch into one vector, every chunk would quietly get the
+    // same vector. One per input or we fail loudly.
     if (vectors.length !== texts.length || vectors.some((v) => v.length === 0)) {
       throw new Error(
         `"${model}" returned ${vectors.length} embeddings for ${texts.length} inputs.\n` +

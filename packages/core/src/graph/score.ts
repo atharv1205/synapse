@@ -1,6 +1,6 @@
 /**
- * Scales values into 0..1 by min-max. A flat input (every value identical) maps to
- * 0.5 across the board, which keeps a degenerate component from dominating the blend.
+ * Min-max scale into 0..1. If every value is the same we return 0.5 for all of them, so a
+ * flat component doesn't skew the blend.
  */
 export function normalize(values: Map<string, number>): Map<string, number> {
   const out = new Map<string, number>();
@@ -21,8 +21,8 @@ export function normalize(values: Map<string, number>): Map<string, number> {
 }
 
 /**
- * Commit counts are heavy-tailed — one config file with 400 commits would flatten
- * everything else under min-max. Compressing with log1p first keeps the mid-range legible.
+ * Commit counts have a long tail. One config file with 400 commits would squash
+ * everything else under plain min-max, so run them through log1p first.
  */
 export function normalizeChurn(counts: Map<string, number>): Map<string, number> {
   const logged = new Map<string, number>();
@@ -31,15 +31,15 @@ export function normalizeChurn(counts: Map<string, number>): Map<string, number>
 }
 
 export interface ScoreWeights {
-  /** Weight on graph centrality. */
+  /** Weight for graph centrality. */
   centrality: number;
-  /** Weight on git churn. */
+  /** Weight for git churn. */
   churn: number;
 }
 
 export const DEFAULT_WEIGHTS: ScoreWeights = { centrality: 0.7, churn: 0.3 };
 
-/** Rounds to 4 decimals so the JSON output stays readable and diff-friendly. */
+/** Round to 4 decimals so the JSON stays readable and diffs stay small. */
 export function round(value: number): number {
   return Math.round(value * 10_000) / 10_000;
 }

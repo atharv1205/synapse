@@ -6,35 +6,37 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
-/** A resolved analysis target: a local directory, plus how to clean it up. */
+/** What we're analysing: a local folder, plus how to clean it up afterwards. */
 export interface ResolvedSource {
-  /** Absolute path to the directory to analyse. */
+  /** Absolute path of the folder to analyse. */
   root: string;
   /**
-   * The input, echoed into the output graph. Always credential-free: any userinfo in
-   * the URL is stripped before it is stored, because this value is written to
-   * graph.json.
+   * The input, copied into the output graph. Never contains credentials: any userinfo in
+   * the URL gets stripped first, since this ends up in graph.json.
    */
   source: string;
-  /** True when `root` is a temp clone that the caller should dispose of. */
+  /** True if `root` is a temp clone the caller should get rid of. */
   ephemeral: boolean;
-  /** Removes the clone if there is one; a no-op for local paths. */
+  /** Deletes the clone if there is one. Does nothing for local paths. */
   cleanup(): Promise<void>;
 }
 
-/** Recognises the URL forms git can clone: https://, git://, ssh://, and scp-style `git@host:org/repo`. */
+/**
+ * Matches the URL forms git can clone: https://, git://, ssh:// and scp-style
+ * `git@host:org/repo`.
+ */
 export function isRepoUrl(input: string): boolean {
   if (/^(https?|git|ssh):\/\//i.test(input)) return true;
   return /^[\w.-]+@[\w.-]+:.+/.test(input);
 }
 
 /**
- * Removes any credentials embedded in a URL's userinfo, so the result is safe to log,
- * to put in an error message, and to write into graph.json.
+ * Strip any credentials out of a URL's userinfo so it's safe to log, show in errors and
+ * write to graph.json.
  *
- * A user can paste `https://ghp_xxx@github.com/org/repo`, so this has to run on every
- * URL, not only on ones where Synapse supplied the token itself. The `git@host:path`
- * scp form carries no password, so it passes through unchanged.
+ * People can paste `https://ghp_xxx@github.com/org/repo`, so this has to run on every
+ * URL, not just ones where we added the token ourselves. The scp-style `git@host:path`
+ * has no password in it, so it's left alone.
  */
 export function redactUrl(input: string): string {
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(input)) return input;
@@ -44,53 +46,52 @@ export function redactUrl(input: string): string {
     if (!url.username && !url.password) return input;
     url.username = "";
     url.password = "";
-    // Keep the shape recognisable rather than pretending there was no credential.
+    // Keep it looking like the original instead of hiding that there was a credential.
     return url.toString().replace("://", "://<redacted>@");
   } catch {
-    // Not parseable as a URL; fall back to a textual strip of `scheme://userinfo@`.
+    // Not a parseable URL, so just strip `scheme://userinfo@` as text.
     return input.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@]*@/i, "$1<redacted>@");
   }
 }
 
 /**
- * Strips the userinfo from every URL inside a piece of text, not only from text that is
- * itself a URL. Git quotes the URL it was given in its own errors, as in
- * `could not read Password for 'https://<token>@github.com'`, so a credential pasted
- * into the URL surfaces mid-sentence, where `redactUrl` alone never looked.
+ * Strip userinfo from every URL inside some text, not just text that is a URL. Git quotes
+ * the URL in its own errors, e.g.
+ * `could not read Password for 'https://<token>@github.com'`, so a pasted credential can
+ * show up mid-sentence where `redactUrl` wouldn't catch it.
  */
 export function redactUrlsInText(text: string): string {
   return text.replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@'"<>]+@/gi, "$1<redacted>@");
 }
 
-/** Replaces every occurrence of a secret in text, for scrubbing tool output. */
+/** Replace every occurrence of a secret in some text. Used to clean up tool output. */
 export function redactSecret(text: string, secret?: string): string {
   if (!secret || secret.length < 4) return text;
   return text.split(secret).join("<redacted>");
 }
 
 export interface ResolveOptions {
-  /** Clone depth. Deeper history gives better churn signal but a slower clone. */
+  /** Clone depth. More history means a better churn signal but a slower clone. */
   depth?: number;
   /**
-   * Credential for private clones. Held in memory only: it reaches git through the
-   * child process environment, and is never logged, embedded in a URL, written to the
-   * clone's git config, or stored in any Synapse output.
+   * Token for private clones. It only lives in memory and reaches git through the child
+   * process env. Never logged, never put in a URL, never written to the clone's git
+   * config or any Synapse output.
    */
   token?: string;
   onProgress?: (message: string) => void;
 }
 
 /**
- * Builds the environment that hands git a token without exposing it.
+ * Builds the env that gives git the token without exposing it.
  *
- * The token goes in as an environment variable and is read by an inline credential
- * helper. Three things are deliberately avoided: the token never appears in the process
- * arguments (where any user on the machine could read it from `ps`), never gets
- * embedded in the remote URL (where git would persist it into the clone's
- * `.git/config`), and never reaches a credential store on disk.
+ * The token goes in an env var that an inline credential helper reads. That way it's
+ * never in the process args (anyone on the machine could see it with `ps`), never in the
+ * remote URL (git would save it into `.git/config`), and never in a credential store on
+ * disk.
  *
- * The first, empty `credential.helper` resets the helpers git would otherwise inherit
- * from the user's own config, so a system keychain cannot answer instead.
+ * The first, empty `credential.helper` clears any helpers inherited from the user's own
+ * git config, so their keychain can't answer instead.
  */
 export function cloneEnv(
   token?: string,
@@ -98,14 +99,14 @@ export function cloneEnv(
 ): Record<string, string> {
   const base: Record<string, string> = {
     ...(inherited as Record<string, string>),
-    // Without this, git blocks forever waiting for a username on a private repo.
+    // Otherwise git hangs forever asking for a username on a private repo.
     GIT_TERMINAL_PROMPT: "0",
   };
 
   if (!token) return base;
 
-  // Respect any GIT_CONFIG_* entries the user already exported rather than clobbering
-  // their git configuration; ours are appended after theirs.
+  // Keep any GIT_CONFIG_* entries the user already set and add ours after them, instead
+  // of overwriting their config.
   const existing = Number.parseInt(base.GIT_CONFIG_COUNT ?? "0", 10);
   const offset = Number.isNaN(existing) || existing < 0 ? 0 : existing;
 
@@ -122,11 +123,11 @@ export function cloneEnv(
 }
 
 /**
- * Pulls the useful part out of a failed git invocation.
+ * Get the useful bit out of a failed git command.
  *
- * execFile's error repeats the whole command line and all of stderr, which buries the
- * one line that matters. Only git's own `fatal:`/`remote:` lines are kept, and the
- * result is scrubbed of credentials before it is shown anywhere.
+ * execFile's error repeats the whole command line plus all of stderr, which buries the
+ * one line that matters. We keep only git's `fatal:`/`remote:` lines and scrub
+ * credentials before showing anything.
  */
 export function cloneErrorDetail(error: unknown, token?: string): string {
   const failure = error as { stderr?: string; message?: string };
@@ -145,7 +146,7 @@ export function cloneErrorDetail(error: unknown, token?: string): string {
   return redactSecret(redactUrlsInText(redactSecret(chosen, token)), token).trim();
 }
 
-/** Git's own auth failures, which say nothing useful about what to do next. */
+/** Git's own auth errors, which don't tell you what to actually do. */
 function looksLikeAuthFailure(message: string): boolean {
   return /authentication failed|could not read username|terminal prompts disabled|repository not found|403|401/i.test(
     message,
@@ -153,11 +154,10 @@ function looksLikeAuthFailure(message: string): boolean {
 }
 
 /**
- * Turns git's raw failure into something actionable.
+ * Turn git's raw error into something you can act on.
  *
- * GitHub answers an unauthenticated request for a private repository with "Repository
- * not found" — the same thing it says for a typo — so the message has to cover both
- * possibilities rather than claiming to know which one it is.
+ * GitHub says "Repository not found" both for a private repo without auth and for a plain
+ * typo, so the message has to mention both. We can't tell which one it is.
  */
 export function cloneFailureMessage(safeUrl: string, detail: string, hadToken: boolean): string {
   if (!looksLikeAuthFailure(detail)) {
@@ -184,8 +184,8 @@ export function cloneFailureMessage(safeUrl: string, detail: string, hadToken: b
 }
 
 /**
- * Turns a GitHub URL or local path into a directory on disk. URLs are cloned into
- * a temp dir; local paths are used in place and never mutated.
+ * Turn a GitHub URL or local path into a folder on disk. URLs get cloned into a temp dir;
+ * local paths are used as they are and never modified.
  */
 export async function resolveSource(
   input: string,
@@ -203,21 +203,20 @@ export async function resolveSource(
     return { root, source: root, ephemeral: false, cleanup: async () => {} };
   }
 
-  // Everything user-visible from here on uses the redacted form.
+  // From here on, anything the user sees uses the redacted URL.
   const safeUrl = redactUrl(input);
   const dir = await mkdtemp(path.join(tmpdir(), "synapse-"));
   onProgress?.(`Cloning ${safeUrl} …`);
 
   try {
-    // git is invoked directly rather than through simple-git here. simple-git's argv
-    // guard rejects credential-helper and GIT_CONFIG_* environment injection outright,
-    // which is exactly the mechanism that keeps the token out of argv and out of the
-    // clone's config. Driving the one command ourselves keeps that property; simple-git
-    // still runs the churn queries elsewhere.
+    // We call git directly here instead of going through simple-git. simple-git's argv
+    // guard refuses credential-helper and GIT_CONFIG_* env injection, and that's exactly
+    // how we keep the token out of argv and out of the clone's config. simple-git still
+    // handles the churn queries elsewhere.
     //
-    // A shallow clone carries enough history for a useful churn signal, and
-    // `--filter=blob:none` skips file contents we never read from git. The `--`
-    // terminator stops a URL beginning with `-` being parsed as an option.
+    // A shallow clone has enough history for churn, and `--filter=blob:none` skips file
+    // contents we never read through git. The `--` stops a URL starting with `-` from
+    // being read as an option.
     await run(
       "git",
       ["clone", "--depth", String(depth), "--filter=blob:none", "--", input, dir],
@@ -226,8 +225,8 @@ export async function resolveSource(
   } catch (error) {
     await rm(dir, { recursive: true, force: true });
 
-    // Git echoes the URL it was given, so its output can carry a credential the user
-    // embedded in the URL — and the redaction has to run before anything is shown.
+    // Git echoes the URL back, so its output might contain a credential the user put in
+    // the URL. Redact before showing anything.
     const detail = cloneErrorDetail(error, token);
 
     throw new Error(cloneFailureMessage(safeUrl, detail, token !== undefined));

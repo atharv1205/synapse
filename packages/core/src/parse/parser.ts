@@ -18,8 +18,8 @@ const GRAMMARS: Record<Language, unknown> = {
 };
 
 /**
- * Creating a Parser and loading a grammar is comparatively expensive, so we keep
- * one parser per language and reuse it across every file of that language.
+ * Spinning up a Parser and loading a grammar isn't cheap, so keep one per language and
+ * reuse it for every file.
  */
 const pool = new Map<Language, Parser>();
 
@@ -34,24 +34,23 @@ function parserFor(language: Language): Parser {
 }
 
 /**
- * How much source to hand tree-sitter per callback invocation. Any value works; this
- * is large enough to keep the call count low and small enough to stay cache-friendly.
+ * How much source we hand tree-sitter per callback. Any size works, this one just keeps
+ * the number of calls low.
  */
 const READ_CHUNK = 16_384;
 
 /**
- * Parses source via tree-sitter's callback input rather than by passing a string.
+ * Parse through tree-sitter's callback input instead of passing the whole string.
  *
- * The Node binding rejects a string of 32,768 characters or more with a bare
- * "Invalid argument", which silently cost us every file above 32KB — 515 of 18,851 in
- * home-assistant/core, and biased toward the largest and most depended-on files, so the
- * gap distorted every importance score. The callback form has no such limit.
+ * The Node binding throws a bare "Invalid argument" for strings of 32,768 chars or more.
+ * That quietly dropped every file over 32KB (515 of 18,851 in home-assistant/core), and
+ * those tend to be the biggest, most imported files, so the importance scores were all
+ * off. The callback form doesn't have that limit.
  *
- * It is used for every file, not just large ones. Measured overhead against the string
- * form is nil (within noise on a 13KB file), the resulting tree is identical, and using
- * one path everywhere means there is no size threshold to get wrong. `index` counts
- * UTF-16 code units, which is exactly what `String.prototype.slice` takes, so
- * multi-byte characters and surrogate pairs straddling a chunk boundary are safe.
+ * We use it for every file, not just big ones. It's no slower (measured on a 13KB file),
+ * gives the same tree, and means there's no size threshold to get wrong. `index` is in
+ * UTF-16 code units, same as `slice`, so multi-byte characters split across chunks are
+ * fine.
  */
 export function parseSource(source: string, language: Language): SyntaxNode {
   return parserFor(language).parse((index: number) =>
@@ -59,13 +58,13 @@ export function parseSource(source: string, language: Language): SyntaxNode {
   ).rootNode;
 }
 
-/** Depth-first walk over every named node, calling `visit` on each. */
+/** Depth-first walk over every named node. */
 export function walkTree(root: SyntaxNode, visit: (node: SyntaxNode) => void): void {
   const stack: SyntaxNode[] = [root];
   while (stack.length > 0) {
     const node = stack.pop()!;
     visit(node);
-    // Push in reverse so children are visited left-to-right.
+    // Push in reverse so children come out left to right.
     for (let i = node.namedChildCount - 1; i >= 0; i--) {
       const child = node.namedChild(i);
       if (child) stack.push(child);
@@ -73,7 +72,7 @@ export function walkTree(root: SyntaxNode, visit: (node: SyntaxNode) => void): v
   }
 }
 
-/** Strips the surrounding quotes from a tree-sitter string literal node's text. */
+/** Strip the quotes off a string literal node's text. */
 export function stringLiteralValue(node: SyntaxNode | null): string | undefined {
   if (!node) return undefined;
   const text = node.text;

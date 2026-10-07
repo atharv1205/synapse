@@ -4,8 +4,8 @@ import { GraphScene } from "../components/GraphScene";
 import { useLayout } from "../useLayout";
 import sample from "./sample-graph.json";
 
-// The JSON's string fields widen to `string` on import, so it is asserted back to the
-// shape scripts/sample-graph.mjs writes, which is a RepoGraph with the heavy parts empty.
+// Importing JSON widens the string fields to `string`, so cast it back to what
+// scripts/sample-graph.mjs writes: a RepoGraph with the heavy parts left empty.
 const GRAPH = sample as unknown as RepoGraph;
 const NONE: number[] = [];
 const ignore = () => {};
@@ -13,14 +13,14 @@ const ignore = () => {};
 /**
  * Synapse's own codebase, laid out and drawn by the same code as the explorer.
  *
- * It fades in from a blur once the layout lands. That is the page's one authored
- * moment: the graph resolving the way a stained sample comes into focus.
+ * It fades in from a blur once the layout is ready. That's the one bit of drama on the
+ * page: the graph coming into focus like a stained sample under a microscope.
  */
 export default function HeroGraph() {
   const { layout } = useLayout(GRAPH);
   const [shown, setShown] = useState(false);
 
-  // Wait a frame after the canvas mounts so the transition has a start state to leave.
+  // Wait a frame after the canvas mounts so the transition has a starting state.
   useEffect(() => {
     if (!layout) return;
     const frame = requestAnimationFrame(() => setShown(true));

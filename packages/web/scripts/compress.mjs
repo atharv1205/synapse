@@ -1,12 +1,7 @@
 #!/usr/bin/env node
-/**
- * Writes a brotli (.br) and a gzip (.gz) copy beside every text asset in dist/, for the
- * server's `preCompressed` static handler to send to clients that accept them.
- *
- * Compressing once at build time, at maximum quality, beats compressing per request,
- * and it uses Node's own zlib rather than adding a compression dependency to the build
- * or a middleware to the server. Static hosts compress on their own and ignore these.
- */
+// Writes .br and .gz versions next to the text files in dist/ so the server can send
+// them pre-compressed. Doing it once at build time beats compressing every request, and
+// node's zlib means no extra dependency.
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +9,7 @@ import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 
 const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dist");
 const COMPRESSIBLE = new Set([".js", ".css", ".html", ".svg", ".json", ".txt", ".webmanifest"]);
-/** Below this, the headers cost more than compression saves. */
+// not worth compressing anything smaller than this
 const MIN_BYTES = 1024;
 
 let before = 0;

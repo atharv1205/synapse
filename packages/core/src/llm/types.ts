@@ -1,51 +1,50 @@
-/** The outcome of a readiness check: either we can proceed, or here is exactly why not. */
+/** Result of a readiness check: good to go, or exactly why not. */
 export type Preflight = { ok: true } | { ok: false; message: string };
 
-/** A JSON Schema constraining a model's structured output. */
+/** JSON Schema for a model's structured output. */
 export type JsonSchema = Record<string, unknown>;
 
 export type ProviderName = "ollama" | "anthropic" | "gemini";
 
 /**
- * What the summarisation and question-answering passes need from a model backend.
+ * What summarising and Q&A need from a model backend.
  *
- * Both clients implement this so the prompt-building code never learns which provider
- * it is talking to — only the transport changes. Embeddings are part of the interface
- * because a provider has to be able to state whether it offers them; a provider that
- * does not must say so rather than quietly producing something else.
+ * Every client implements this, so the prompt code never knows which provider it's
+ * talking to. Only the transport changes. Embeddings are part of it because a provider
+ * has to say whether it supports them, and one that doesn't has to say so instead of
+ * quietly doing something else.
  */
 export interface LlmProvider {
   readonly name: ProviderName;
-  /** The chat / summarisation model this provider will use. */
+  /** The chat/summary model this provider uses. */
   readonly model: string;
-  /** Human-readable endpoint, for status output. */
+  /** Endpoint in readable form, for status output. */
   readonly endpoint: string;
-  /** False when the provider has no embeddings endpoint at all. */
+  /** False if the provider has no embeddings endpoint. */
   readonly supportsEmbeddings: boolean;
 
-  /** Checks that the provider is reachable and the given model is usable. */
+  /** Check the provider is reachable and the model is usable. */
   preflight(model?: string): Promise<Preflight>;
 
-  /** One completion returning prose. */
+  /** One completion that returns prose. */
   generateText(prompt: string, options?: { maxTokens?: number }): Promise<string>;
 
   /** One completion constrained to `schema`, parsed into T. */
   generateJson<T>(prompt: string, schema: JsonSchema): Promise<T>;
 
   /**
-   * Embeds a batch of texts. Providers without embeddings throw rather than
-   * substituting another model, so a caller can never silently get vectors from
-   * somewhere it did not ask for.
+   * Embed a batch of texts. Providers without embeddings throw instead of using some
+   * other model, so callers never get vectors from somewhere they didn't ask for.
    */
   embed(texts: string[], model: string): Promise<number[][]>;
 }
 
 /**
- * Thrown when a provider is asked for embeddings it cannot produce.
+ * Thrown when a provider is asked for embeddings it can't make.
  *
- * This is deliberately loud. Vectors from two different models are not comparable, so
- * quietly answering an embedding request with a different provider's model would
- * corrupt an index in a way that is very hard to notice.
+ * This is loud on purpose. Vectors from different models don't mix, so quietly answering
+ * with another provider's model would corrupt the index in a way that's really hard to
+ * spot.
  */
 export class EmbeddingsUnsupportedError extends Error {
   constructor(provider: ProviderName) {

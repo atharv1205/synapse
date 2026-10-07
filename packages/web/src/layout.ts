@@ -1,15 +1,15 @@
 import type { FileNode, RepoGraph } from "@synapse/core";
 import type { SimulationInput } from "./simulate";
 
-/** A file node with a resolved 3D position. */
+/** A file node with its 3D position worked out. */
 export interface PositionedNode {
   node: FileNode;
-  /** Index into the graph's node array; also the instance index in the scene. */
+  /** Index into the graph's node array. Also the instance index in the scene. */
   index: number;
   x: number;
   y: number;
   z: number;
-  /** Directory the file lives in, used for grouping and colouring. */
+  /** Folder the file lives in, for grouping and colouring. */
   directory: string;
 }
 
@@ -22,13 +22,13 @@ export interface LayoutEdge {
 export interface Layout {
   nodes: PositionedNode[];
   edges: LayoutEdge[];
-  /** Distinct directories, sorted, so colour assignment is stable across reloads. */
+  /** Unique folders, sorted, so colours stay the same across reloads. */
   directories: string[];
   /**
    * Where the camera looks: the importance-weighted centre of the most important files.
    *
-   * Not the origin. The force layout centres the whole cloud's mass, and in a real
-   * repository that mass is mostly low-importance files: tests, examples, docs. The
+   * Not the origin. The force layout centres the mass of the whole cloud, and in a real
+   * repo most of that mass is low-importance stuff like tests, examples and docs. The
    * files that matter end up off to one side. On pallets/flask the 17 most important
    * files sat 1,070 units from the origin in a cluster only 161 across; on
    * home-assistant/core the top 300 sat 2,457 units out, 517 across.
@@ -36,41 +36,40 @@ export interface Layout {
   center: { x: number; y: number; z: number };
   /**
    * The radius the camera frames: the 90th percentile of the important files' distance
-   * from `center`. Node sizes and the focus distance scale with it, so a node looks the
-   * same size on screen whatever the graph's size.
+   * from `center`. Node sizes and focus distance scale with it, so a node looks the same
+   * size on screen whatever the graph size.
    *
-   * A percentile rather than the maximum, because the maximum is an outlier statistic:
-   * framing against it once put an 18,851-node graph's camera past the far plane.
+   * Percentile and not max, because the max is basically an outlier: framing on it once
+   * put the camera for an 18,851-node graph past the far plane.
    */
   radius: number;
   /**
-   * A frame for the whole graph rather than its core: every file's centroid, and the
-   * same percentile of distance from it. For views whose job is the overall shape, like
-   * the landing page's hero.
+   * A frame for the whole graph instead of just the core: the centre of every file, and
+   * the same percentile of distance from it. For views that are about the overall shape,
+   * like the landing page hero.
    */
   overview: { center: { x: number; y: number; z: number }; radius: number };
   /**
-   * Distance from `center` to the single furthest node. Only used to size the far plane,
-   * so the outliers the framing deliberately ignores are still not clipped away.
+   * Distance from `center` to the furthest node. Only used to size the far plane, so the
+   * outliers the framing ignores still don't get clipped.
    */
   extent: number;
 }
 
 /**
- * Which percentile of node distance the camera frames against.
+ * Which percentile of node distance the camera frames on.
  *
- * Measured on home-assistant/core (18,851 nodes), the distance distribution has a cliff:
- * p50 1924, p90 2340, p95 12581, max 25282. Ninety percent of the graph sits inside
- * 2340 units and the rest is flung out behind it, so p95 lands on the far side of the
- * tail and frames almost as badly as the max did. Framing at p90 keeps nine nodes in ten
- * on screen and the rest a scroll away.
+ * On home-assistant/core (18,851 nodes) the distances fall off a cliff: p50 1924, p90
+ * 2340, p95 12581, max 25282. 90% of the graph is within 2340 units and the rest is flung
+ * way out, so p95 lands past the tail and frames almost as badly as the max. p90 keeps
+ * nine in ten nodes on screen and the rest a scroll away.
  */
 const FRAMING_PERCENTILE = 0.9;
 
 /**
- * Which files count as "the important ones" for framing: the top fifth by importance,
- * at least 10 and at most 300. 300 matches the number of files the explorer keeps
- * prominent when it opens on a large repository, so the camera frames what it shows.
+ * Which files count as "the important ones" for framing: the top fifth by importance, at
+ * least 10 and at most 300. 300 is how many files the explorer highlights when it opens a
+ * big repo, so the camera frames what's shown.
  */
 function focusCount(total: number): number {
   return Math.min(total, 300, Math.max(10, Math.round(total * 0.2)));
@@ -88,11 +87,11 @@ export function directoryOf(filePath: string): string {
 }
 
 /**
- * Flattens a graph into what the force simulation needs, plus the resolved edge list
- * the scene draws. Cheap — a pass over the edges — so it stays on the main thread.
+ * Flatten a graph into what the force simulation needs, plus the edge list the scene
+ * draws. Cheap (one pass over the edges), so it stays on the main thread.
  *
- * Importance shapes the layout through link distance: an important file sits closer to
- * what imports it, so clusters form around the files that matter.
+ * Importance affects the layout through link distance: an important file sits closer to
+ * whatever imports it, so clusters form around the files that matter.
  */
 export function simulationInput(graph: RepoGraph): { input: SimulationInput; edges: LayoutEdge[] } {
   const indexById = new Map<string, number>();
@@ -123,8 +122,8 @@ export function simulationInput(graph: RepoGraph): { input: SimulationInput; edg
 }
 
 /**
- * Builds the scene's layout from settled simulation positions: attaches each position
- * to its file, and works out the directory palette and where the camera frames.
+ * Build the scene layout from the settled positions: attach each position to its file,
+ * then work out the folder colours and where the camera frames.
  */
 export function assembleLayout(
   graph: RepoGraph,
@@ -146,10 +145,10 @@ export function assembleLayout(
     .sort((a, b) => b.node.importance - a.node.importance)
     .slice(0, focusCount(nodes.length));
 
-  // Weighted by importance squared, so the camera settles on the heaviest few files. A
-  // linear weight let the lesser members of the top fifth drag the centre off the core:
-  // on pallets/flask it sat about 100 units from typing.py, globals.py and app.py. Equal
-  // weights if every importance is zero, as on a graph with no edges and no history.
+  // Weighted by importance squared, so the camera settles on the few heaviest files. With
+  // a linear weight the weaker files in the top fifth pulled the centre off the core; on
+  // pallets/flask it ended up about 100 units from typing.py, globals.py and app.py. If
+  // every importance is zero (no edges, no history) all weights are equal.
   const mass = (n: PositionedNode) => n.node.importance ** 2;
   const total = focus.reduce((sum, n) => sum + mass(n), 0);
   const weight = (n: PositionedNode) => (total > 0 ? mass(n) / total : 1 / focus.length);
@@ -165,7 +164,8 @@ export function assembleLayout(
   const sorted = (point: { x: number; y: number; z: number }, set: PositionedNode[]) =>
     set.map(distanceFrom(point)).sort((a, b) => a - b);
 
-  // `|| 100` covers graphs whose framed files all sit on one point, like a single file.
+  // `|| 100` covers graphs where all the framed files sit on one point, like a single
+  // file.
   const radius = percentile(sorted(center, focus), FRAMING_PERCENTILE) || 100;
 
   const count = nodes.length || 1;

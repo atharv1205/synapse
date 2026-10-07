@@ -16,8 +16,8 @@ import type { FileNode, FunctionNode, RepoGraph } from "../src/types.js";
 import { createFixture, type Fixture } from "./fixture.js";
 
 /**
- * A stand-in for Ollama that records every prompt it was given and replies with a
- * canned response. Nothing in this suite reaches a real model or the network.
+ * Fake Ollama that records every prompt and replies with a canned answer. Nothing in here
+ * touches a real model or the network.
  */
 class FakeBackend implements SummarizerBackend {
   readonly model = "fake-model";
@@ -27,9 +27,9 @@ class FakeBackend implements SummarizerBackend {
   constructor(
     private readonly behaviour: {
       preflight?: { ok: true } | { ok: false; message: string };
-      /** Thrown for every request, to exercise the per-file failure path. */
+      /** Thrown on every request, to test the per-file failure path. */
       throws?: string;
-      /** Raw text returned instead of a well-formed object. */
+      /** Raw text to return instead of a proper object. */
       respond?: (prompt: string) => unknown;
     } = {},
   ) {}
@@ -45,7 +45,7 @@ class FakeBackend implements SummarizerBackend {
 
     if (this.behaviour.respond) return this.behaviour.respond(prompt) as T;
 
-    // Echo back the functions the prompt asked about, so name-matching is exercised.
+    // Echo back the functions the prompt asked about, so name matching gets tested.
     const asked = [...prompt.matchAll(/^- ([\w.]+) \(\d+ resolved call site/gm)].map((m) => m[1]!);
     return {
       summary: `Summary of a file. It has ${asked.length} notable functions. Third sentence.`,
@@ -93,8 +93,8 @@ describe("OllamaClient preflight", () => {
         assert.equal(result.ok, false);
         const message = result.ok === false ? result.message : "";
         assert.match(message, /ollama serve/);
-        // preflight is shared with the RAG and server paths, so it must stay generic;
-        // the --skip-summarize hint is the summarising caller's to add.
+        // preflight is shared with the RAG and server code, so it has to stay generic.
+        // Adding the --skip-summarize hint is the summariser's job.
         assert.doesNotMatch(message, /--skip-summarize/);
       },
     );
@@ -342,8 +342,8 @@ describe("summarizeGraph — against a fake model", () => {
     fixture = await createFixture();
   });
 
-  // Each case gets its own cache directory. Sharing one would let an earlier test's
-  // summaries satisfy a later test's cache lookups and silently hide real regressions.
+  // Each test gets its own cache folder. Sharing one would let an earlier test's
+  // summaries answer a later test's cache lookups and hide real bugs.
   beforeEach(async () => {
     cacheDir = path.join(fixture.root, `.cache-${++caseNumber}`);
     graph = await freshGraph();
@@ -372,7 +372,8 @@ describe("summarizeGraph — against a fake model", () => {
     const declaration = graph.functionNodes.find((f) => f.id === "hub.ts#sharedHelper");
     assert.ok(declaration?.summary, "the declaration should carry a summary");
 
-    // The file node references it by id; there is no second copy to fall out of step.
+    // The file node points to it by id, so there's no second copy that could get out of
+    // sync.
     const hub = graph.nodes.find((n) => n.path === "hub.ts");
     assert.ok(hub?.functions.includes("hub.ts#sharedHelper"));
   });

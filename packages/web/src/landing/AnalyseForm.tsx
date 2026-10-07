@@ -9,12 +9,12 @@ export interface AnalyseFormProps {
 }
 
 /**
- * Paste a GitHub URL or a local path, pick who summarises, and go. The server analyses in
- * the background and the explorer shows its progress, so this only has to start it.
+ * Paste a GitHub URL or local path, pick who summarises, and go. The server analyses in
+ * the background and the explorer shows progress, so all this has to do is start it.
  *
- * The token field is for private repositories. Its value goes to the server once, in the
- * request body over localhost, is used for the clone and is never stored there; it is
- * cleared from the page as soon as the request is sent.
+ * The token field is for private repos. The value goes to the server once, in the request
+ * body over localhost, gets used for the clone and is never stored. We clear it from the
+ * page as soon as the request goes out.
  */
 export function AnalyseForm({ providers, defaultProvider }: AnalyseFormProps) {
   const [choice, choose] = useProviderChoice();

@@ -4,7 +4,7 @@ import { usePathname } from "./router";
 import "./styles/tokens.css";
 
 // Each route is its own chunk: the landing page never downloads the explorer's panels,
-// and the explorer never downloads the landing page's copy.
+// and the explorer never downloads the landing page's text.
 const Landing = lazy(() => import("./landing/Landing").then((m) => ({ default: m.Landing })));
 const NotFound = lazy(() => import("./landing/Landing").then((m) => ({ default: m.NotFound })));
 const App = lazy(() => import("./App").then((m) => ({ default: m.App })));
@@ -15,8 +15,8 @@ function Root() {
   const page =
     pathname === "/" ? <Landing /> : pathname === "/graph" ? <App /> : <NotFound />;
 
-  // The fallback is the bare darkfield, so a route chunk loading shows as nothing
-  // rather than as a flash of a different state.
+  // The fallback is just the dark background, so a route loading shows nothing instead of
+  // flashing some other screen.
   return <Suspense fallback={null}>{page}</Suspense>;
 }
 

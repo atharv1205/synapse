@@ -15,39 +15,39 @@ export interface AnalyzeOptions {
   /** Clone depth when the target is a URL. */
   depth?: number;
   /**
-   * Credential for cloning a private repository. Passed straight to the clone step and
-   * never stored: the graph records the redacted URL, not this.
+   * Token for cloning a private repo. It only goes to the clone step and is never stored;
+   * the graph keeps the redacted URL.
    */
   token?: string;
-  /** Blend of centrality and churn; defaults to 70/30. */
+  /** Centrality vs churn mix. 70/30 by default. */
   weights?: ScoreWeights;
-  /** Skip the git history pass. */
+  /** Skip reading git history. */
   skipChurn?: boolean;
-  /** Skip the LLM summarisation pass entirely. */
+  /** Skip LLM summaries completely. */
   skipSummarize?: boolean;
-  /** Which backend summarises: the local Ollama model, or the Anthropic API. */
+  /** Who writes the summaries: local Ollama, Gemini or Claude. */
   provider?: ProviderName;
-  /** Chat model. Defaults to the chosen provider's own default. */
+  /** Chat model. Falls back to the provider's default. */
   model?: string;
-  /** Ollama base URL, if not the local default. */
+  /** Ollama base URL, if it's not the usual local one. */
   ollamaUrl?: string;
-  /** How many of the most important files to summarise. */
+  /** How many of the top files to summarise. */
   summarizeTop?: number;
   /**
-   * Where summaries.json is read and written. Summarisation is skipped when this is
-   * absent, because there would be nowhere to cache results.
+   * Where summaries.json lives. No cacheDir means no summaries, since there'd be nowhere
+   * to cache them.
    */
   cacheDir?: string;
-  /** Injected in tests so the suite never reaches a real model. */
+  /** Tests pass a fake here so they never hit a real model. */
   summarizeBackend?: SummarizerBackend;
-  /** Skip asking GitHub for the repository's description, stars and language. */
+  /** Don't ask GitHub for the repo's description, stars and language. */
   skipGitHub?: boolean;
-  /** Replaces fetch for the GitHub lookup, so tests never reach the network. */
+  /** Stand-in for fetch in the GitHub lookup, so tests stay offline. */
   githubFetch?: typeof fetch;
   onProgress?: (message: string) => void;
 }
 
-/** Runs the full pipeline: ingest, parse, resolve, score. Does not write anything to disk. */
+/** The whole pipeline: walk, parse, resolve, score. Doesn't write anything to disk. */
 export async function analyze(target: string, options: AnalyzeOptions = {}): Promise<RepoGraph> {
   const { onProgress = () => {} } = options;
   const source = await resolveSource(target, {
@@ -57,9 +57,9 @@ export async function analyze(target: string, options: AnalyzeOptions = {}): Pro
   });
 
   try {
-    // GitHub's details are fetched alongside the parse rather than before it, so they
-    // add no time to a run. A URL names its repository; a local folder is checked for
-    // a GitHub origin remote.
+    // Fetch the GitHub details while we parse, not before, so they cost no extra time. A
+    // URL tells us the repo directly; for a local folder we look for a GitHub origin
+    // remote.
     const details: Promise<RepositoryLookup | undefined> = options.skipGitHub
       ? Promise.resolve(undefined)
       : (async () => {
@@ -81,10 +81,10 @@ export async function analyze(target: string, options: AnalyzeOptions = {}): Pro
         const contents = await readFile(file.absPath, "utf8");
         parsed.set(file.path, parseFile(file.path, contents, file.language));
       } catch (error) {
-        // A file that cannot be read or parsed drops out of the graph rather than
-        // failing the run — but it is recorded rather than swallowed. A silent gap here
-        // removes that file's imports and symbols and quietly skews every score, which
-        // is exactly how the 32KB parser limit went unnoticed.
+        // If a file can't be read or parsed it drops out of the graph, but we record it
+        // instead of swallowing the error. A silent gap here loses that file's imports
+        // and symbols and skews every score. That's exactly how the 32KB parser limit
+        // went unnoticed.
         parseFailures.push({
           path: file.path,
           reason: error instanceof Error ? error.message : String(error),
@@ -135,8 +135,8 @@ export async function analyze(target: string, options: AnalyzeOptions = {}): Pro
       onProgress(lookup.reason);
     }
 
-    // Summarisation mutates the graph in place, so it must run before the caller writes
-    // it out — and while the clone still exists, since it reads the files from disk.
+    // Summarising edits the graph in place, so it has to happen before the caller writes
+    // it out. It also reads files from disk, so the clone needs to still be around.
     if (!options.skipSummarize && options.cacheDir) {
       onProgress("Summarising …");
       graph.summarization = await summarizeGraph(graph, {
@@ -157,7 +157,7 @@ export async function analyze(target: string, options: AnalyzeOptions = {}): Pro
   }
 }
 
-/** Writes a graph to `<outDir>/graph.json` and returns the path written. */
+/** Write the graph to `<outDir>/graph.json` and return that path. */
 export async function writeGraph(graph: RepoGraph, outDir: string): Promise<string> {
   await mkdir(outDir, { recursive: true });
   const target = path.join(outDir, "graph.json");

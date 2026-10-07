@@ -2,19 +2,18 @@ import type { FileNode, FunctionNode } from "../types.js";
 import type { JsonSchema } from "../llm/types.js";
 
 /**
- * Bump when the prompt or schema changes in a way that makes old summaries stale.
- * Cached entries carry the version they were generated under and are re-generated
- * when it no longer matches.
+ * Bump this when the prompt or schema changes enough to make old summaries stale. Cached
+ * entries remember their version and get regenerated when it doesn't match.
  */
 export const PROMPT_VERSION = 1;
 
-/** How much of a file's source to send. Enough for context, small enough to stay fast. */
+/** How much of a file we send. Enough for context, small enough to stay quick. */
 export const MAX_SOURCE_CHARS = 6_000;
 
-/** How many of a file's functions get their own one-line summary. */
+/** How many functions per file get their own one-liner. */
 export const TOP_FUNCTIONS_PER_FILE = 3;
 
-/** A function selected for summarisation, with the call count that got it selected. */
+/** A function picked for summarising, plus the call count that got it picked. */
 export interface RankedFunction {
   symbol: FunctionNode;
   callCount: number;
@@ -43,10 +42,10 @@ export interface SummaryResponse {
 }
 
 /**
- * Recovers a declaration's signature by taking the source line it starts on. This is
- * cheap and accurate for the common single-line case; multi-line parameter lists get
- * an ellipsis rather than a reconstructed signature, which is honest about the limit.
- * A Java declaration starts at its annotations, so lines of only annotations are skipped.
+ * Get a declaration's signature by taking the line it starts on. Cheap and right for the
+ * usual one-line case; multi-line params just get cut off with an ellipsis instead of us
+ * trying to rebuild them. Java declarations start at their annotations, so we skip lines
+ * that are only annotations.
  */
 export function signatureOf(symbol: FunctionNode, lines: string[]): string {
   let index = symbol.startLine - 1;
@@ -57,7 +56,7 @@ export function signatureOf(symbol: FunctionNode, lines: string[]): string {
   return `${cleaned.slice(0, 117)}...`;
 }
 
-/** Keeps the head of a file, which holds the imports and the primary declarations. */
+/** Keep the top of the file, where the imports and main declarations usually are. */
 export function truncateSource(source: string, limit = MAX_SOURCE_CHARS): {
   text: string;
   truncated: boolean;
@@ -72,13 +71,13 @@ function languageFence(language: FileNode["language"]): string {
 }
 
 /**
- * Builds the prompt for one file. Includes why the file matters (its graph metrics),
- * what it declares (signatures), and what it actually says (a capped slice of source),
- * so the model can describe the file's role rather than just paraphrasing its code.
+ * Build the prompt for one file: why it matters (graph metrics), what it declares
+ * (signatures) and what it actually says (a capped chunk of source). That way the model
+ * describes the file's role instead of just paraphrasing the code.
  */
 export function buildFilePrompt(
   node: FileNode,
-  /** The file's declarations, resolved from `functionNodes` by the caller. */
+  /** The file's declarations, looked up from `functionNodes` by the caller. */
   declarations: FunctionNode[],
   source: string,
   ranked: RankedFunction[],

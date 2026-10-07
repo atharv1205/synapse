@@ -19,9 +19,9 @@ import { SUMMARY_SCHEMA } from "../src/summarize/prompt.js";
 import { createFixture, type Fixture } from "./fixture.js";
 
 /**
- * A stand-in for the Gemini SDK, one level below GeminiClient, so these tests run the
- * real client code — request shapes, refusals, error messages, the one-vector-per-input
- * guard — without calling the API.
+ * Fake Gemini SDK, one level below GeminiClient, so these tests run the real client code
+ * (request shapes, refusals, error messages, the one-vector-per-input check) without
+ * calling the API.
  */
 class FakeGemini implements GeminiTransport {
   readonly generated: Array<{ model: string; contents: string; config?: Record<string, unknown> }> = [];
@@ -29,7 +29,10 @@ class FakeGemini implements GeminiTransport {
   reply: { text?: string; promptFeedback?: { blockReason?: string }; candidates?: Array<{ finishReason?: string }> } = {
     text: JSON.stringify({ summary: "A file.", functions: [] }),
   };
-  /** Set to make embedContent aggregate a batch into one vector, as gemini-embedding-2 does. */
+  /**
+   * Turn on to make embedContent squash a batch into one vector, like gemini-embedding-2
+   * does.
+   */
   aggregate = false;
   failure?: Error;
 
@@ -141,8 +144,8 @@ describe("GeminiClient", () => {
   });
 
   it("fails loudly when a model aggregates a batch into one vector", async () => {
-    // gemini-embedding-2 does this; quietly accepting it would give every chunk the
-    // same vector and make every question return the same sources.
+    // gemini-embedding-2 does this. If we quietly accepted it, every chunk would get the
+    // same vector and every question would return the same sources.
     const fake = new FakeGemini();
     fake.aggregate = true;
     await assert.rejects(

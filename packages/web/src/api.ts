@@ -2,7 +2,7 @@ import type { RepoGraph, RepositoryInfo, Source } from "@synapse/core";
 
 export type ProviderName = "ollama" | "gemini" | "anthropic";
 
-/** In the order the switch shows them. */
+/** Same order as the switch. */
 export const PROVIDERS: ProviderName[] = ["ollama", "gemini", "anthropic"];
 
 export const PROVIDER_LABELS: Record<ProviderName, string> = {
@@ -13,12 +13,12 @@ export const PROVIDER_LABELS: Record<ProviderName, string> = {
 
 export interface ProviderAvailability {
   available: boolean;
-  /** The chat model it would use. */
+  /** Chat model it would use. */
   model: string;
   message?: string;
 }
 
-/** Mirrors the server's StatusResponse. */
+/** Same shape as the server's StatusResponse. */
 export interface Status {
   root: string;
   ollama: { baseUrl: string; reachable: boolean };
@@ -28,7 +28,7 @@ export interface Status {
   chatModel: { name: string; available: boolean; message?: string };
   embedModel: { name: string; available: boolean; message?: string };
   graph: { exists: boolean; fileCount?: number; generatedAt?: string };
-  /** GitHub's details for the served repository, when it is on GitHub. */
+  /** GitHub's details for the served repo, if it's on GitHub. */
   repository?: RepositoryInfo;
   analysis: { running: boolean; message?: string; error?: string };
   index: { exists: boolean; chunks?: number; dim?: number };
@@ -53,9 +53,9 @@ export interface IndexReport {
 }
 
 /**
- * An error carrying the server's own remediation text. Core produces those messages —
- * "run ollama pull …", "run synapse analyze …" — and the UI shows them verbatim rather
- * than inventing its own wording.
+ * An error that carries the server's own fix-it text. Core writes those messages ("run
+ * ollama pull …", "run synapse analyze …") and the UI shows them as they are instead of
+ * making up its own.
  */
 export class ApiError extends Error {
   constructor(
@@ -102,16 +102,16 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export interface AnalyzeRequest {
-  /** A GitHub https URL, or a local folder path. */
+  /** A GitHub https URL or a local folder path. */
   target: string;
-  /** For a private repository. Sent once, for the clone, and never stored by the server. */
+  /** For private repos. Sent once for the clone; the server never stores it. */
   token?: string;
   provider?: ProviderName;
   reanalyze?: boolean;
 }
 
 export interface AnalyzeResponse {
-  /** "ready" when the repository was analysed before and opens from its cache. */
+  /** "ready" if the repo was analysed before and opens from the cache. */
   status: "ready" | "analysing";
   root: string;
 }
@@ -136,15 +136,15 @@ export const api = {
   analyze: (body: AnalyzeRequest) => request<AnalyzeResponse>("/api/analyze", json(body)),
 };
 
-/** The last path segment of the served root, which is what a person calls the repo. */
+/** Last part of the served root, which is what people actually call the repo. */
 export function repoNameOf(root: string): string {
-  // A served URL ends in `repo` or `repo.git`; a path ends in the directory name.
+  // A URL ends in `repo` or `repo.git`, a path ends in the folder name.
   return root.replace(/[\\/]+$/, "").split(/[\\/:]/).pop()?.replace(/\.git$/, "") || root;
 }
 
 const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 
-/** 69000 → "69K": star and fork counts read at a glance. */
+/** 69000 → "69K", so star and fork counts are quick to read. */
 export function compactCount(value: number): string {
   return compact.format(value);
 }

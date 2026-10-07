@@ -29,15 +29,15 @@ import {
 const PROVIDERS: ProviderName[] = ["ollama", "gemini", "anthropic"];
 
 export interface ServerConfig {
-  /** Repo root being served. */
+  /** Root of the repo being served. */
   root: string;
-  /** Directory holding graph.json, summaries.json and the embedding index. */
+  /** Folder with graph.json, summaries.json and the embedding index. */
   cacheDir: string;
-  /** Built web app to serve, if there is one. Omitted in dev, where Vite serves it. */
+  /** Built web app to serve, if any. Left out in dev since Vite serves it then. */
   webDist?: string;
   /**
-   * The address the server is bound to. On a loopback address, requests naming any
-   * other host are refused; see `isLoopback` for why.
+   * Address we're bound to. On loopback, requests for any other host get refused (see
+   * `isLoopback`).
    */
   host?: string;
   provider?: ProviderName;
@@ -46,30 +46,29 @@ export interface ServerConfig {
   ollamaUrl?: string;
   logger?: boolean;
   /**
-   * An analysis to start as soon as the server exists, for `serve` on a target with no
-   * graph yet. The server listens before it finishes so the UI can show progress.
+   * Analysis to kick off as soon as the server is up, for `serve` on a target with no
+   * graph yet. We start listening before it finishes so the UI can show progress.
    */
   initialAnalysis?: AnalysisJob;
   /**
-   * Where repositories analysed from the web page keep their artefacts, one folder per
-   * repository, so opening the same one again is instant. Defaults to
-   * ~/.synapse-map/repos.
+   * Where repos analysed from the web page keep their files, one folder each, so opening
+   * the same repo again is instant. Defaults to ~/.synapse-map/repos.
    */
   reposDir?: string;
-  /** Receives every progress line, for printing to the terminal. */
+  /** Gets every progress line, to print in the terminal. */
   onProgress?: (line: string) => void;
-  /** Replaces core's analyze, for tests. */
+  /** Swap out core's analyze (for tests). */
   analyzer?: (target: string, options: AnalyzeOptions) => Promise<RepoGraph>;
 }
 
-/** One analysis: what to read, where its artefacts go, and how to summarise it. */
+/** One analysis: what to read, where its files go and how to summarise. */
 export interface AnalysisJob {
-  /** A path, or the URL to clone, credential included if the user put one in it. */
+  /** A path, or the URL to clone, including a credential if the user put one in. */
   target: string;
-  /** What to show for it: the path, or the URL with any credential removed. */
+  /** What we show for it: the path, or the URL with the credential stripped. */
   root: string;
   cacheDir: string;
-  /** Used for the clone only; never stored, logged or returned. */
+  /** Only used for the clone. Never stored, logged or sent back. */
   token?: string;
   provider?: ProviderName;
   skipSummarize?: boolean;
@@ -79,42 +78,44 @@ export interface AnalysisJob {
 
 export interface AnalysisState {
   running: boolean;
-  /** Latest progress line from the analysis pipeline. */
+  /** Latest progress line from the pipeline. */
   message?: string;
-  /** Set when the analysis failed; the UI shows this instead of spinning forever. */
+  /** Set if the analysis failed, so the UI shows it instead of spinning forever. */
   error?: string;
 }
 
-/** Whether one provider can be used right now, and if not, what would fix it. */
+/** Whether a provider is usable right now, and if not, how to fix it. */
 export interface ProviderAvailability {
   available: boolean;
-  /** The chat model it would use. */
+  /** Chat model it would use. */
   model: string;
   message?: string;
 }
 
-/** What the UI needs to decide between rendering, a loading state, or remediation. */
+/**
+ * What the UI needs to pick between showing the graph, a loading state, or a fix-it
+ * message.
+ */
 export interface StatusResponse {
   root: string;
   ollama: { baseUrl: string; reachable: boolean };
   chatModel: { name: string; available: boolean; message?: string };
   embedModel: { name: string; available: boolean; message?: string };
   graph: { exists: boolean; fileCount?: number; generatedAt?: number | string };
-  /** GitHub's details for the served repository, when it is on GitHub. */
+  /** GitHub's details for the served repo, if it's on GitHub. */
   repository?: RepositoryInfo;
   analysis: AnalysisState;
   /**
-   * Which backend answers, and the note explaining why embeddings may come from a
-   * different one. The UI shows this so a user on Claude understands why Ollama still
-   * has to be running.
+   * Which backend answers, plus a note on why embeddings might come from another one. The
+   * UI shows it so someone on Claude gets why Ollama still needs to run.
    */
   provider: { chat: string; embed: string; note?: string };
-  /** The provider `serve` was started with, which the page selects by default. */
+  /** The provider `serve` started with. The page picks it by default. */
   defaultProvider: ProviderName;
-  /** Every provider and whether it can be used now, for the page's switch. */
+  /** Every provider and whether it works right now, for the switch on the page. */
   providers: Record<ProviderName, ProviderAvailability>;
   index: { exists: boolean; chunks?: number; dim?: number };
-  /** True when /api/ask can be expected to work right now. */
+  /** True if /api/ask should work right now. */
   canAsk: boolean;
 }
 
@@ -134,14 +135,14 @@ interface AnalyzeBody {
   target?: unknown;
   token?: unknown;
   provider?: unknown;
-  /** Analyse again even if this repository already has a graph. */
+  /** Analyse again even if this repo already has a graph. */
   reanalyze?: unknown;
 }
 
 /**
- * Where a repository analysed from the web page keeps its artefacts:
- * <reposDir>/<host>/<owner>/<repo>. Every segment is reduced to safe characters and `..`
- * cannot survive, so a crafted URL cannot write outside reposDir.
+ * Where a repo analysed from the web page keeps its files:
+ * <reposDir>/<host>/<owner>/<repo>. Every part is cut down to safe characters and `..`
+ * can't get through, so a crafted URL can't write outside reposDir.
  */
 export function repoCacheDir(reposDir: string, url: string): string {
   const parsed = new URL(url);
@@ -151,24 +152,24 @@ export function repoCacheDir(reposDir: string, url: string): string {
   return path.join(reposDir, ...segments);
 }
 
-/** The provider named in a request, `undefined` if none was given, or `null` if invalid. */
+/** Provider from a request: `undefined` if none was given, `null` if it's not valid. */
 function providerIn(value: unknown): ProviderName | undefined | null {
   if (value === undefined || value === null || value === "") return undefined;
   return PROVIDERS.includes(value as ProviderName) ? (value as ProviderName) : null;
 }
 
 /**
- * Client-side routes the web app renders. Anything else that is not a file or an API
- * route gets the app's not-found page with a real 404, not a soft 200. Keep in step
- * with the route switch in packages/web/src/main.tsx.
+ * Routes the web app renders itself. Anything else that isn't a file or an API route gets
+ * the app's not-found page with a real 404, not a fake 200. Keep this in sync with the
+ * route switch in packages/web/src/main.tsx.
  */
 const APP_ROUTES = new Set(["/", "/graph"]);
 
 /**
- * Sent with every response. The page loads nothing from another origin, so the policy
- * can be `'self'` throughout; inline styles are allowed because React and the 3D canvas
- * set element style attributes. Framing is refused outright: nothing needs to embed the
- * explorer, and refusing it rules out clickjacking the Ask and Rebuild buttons.
+ * Sent on every response. The page doesn't load anything from other origins, so `'self'`
+ * everywhere is enough. Inline styles are allowed because React and the 3D canvas set
+ * style attributes. Framing is blocked: nothing needs to embed the explorer, and it stops
+ * clickjacking on the Ask and Rebuild buttons.
  */
 const SECURITY_HEADERS: Record<string, string> = {
   "content-security-policy": [
@@ -196,7 +197,7 @@ export function isLoopback(host: string | undefined): boolean {
   return host === undefined || LOOPBACK_HOSTS.has(host) || host.startsWith("127.");
 }
 
-/** The hostname part of a Host header, without the port, for IPv4, names and [IPv6]. */
+/** Hostname from a Host header, minus the port. Handles IPv4, names and [IPv6]. */
 function hostnameOf(header: string | undefined): string {
   if (!header) return "";
   if (header.startsWith("[")) return header.slice(0, header.indexOf("]") + 1);
@@ -204,20 +205,20 @@ function hostnameOf(header: string | undefined): string {
 }
 
 /**
- * The HTTP surface over the analysis core. Every route is a thin wrapper: read a file,
- * or call one core function and serialise what it returns. No scoring, chunking,
- * retrieval or remediation logic lives here — that all belongs to core, and duplicating
- * any of it would mean two behaviours to keep in step.
+ * The HTTP layer on top of core. Every route is thin: read a file, or call one core
+ * function and send back what it returns. No scoring, chunking, retrieval or fix-it logic
+ * here. That all lives in core, and copying any of it would mean two behaviours to keep
+ * in sync.
  */
 export async function createServer(config: ServerConfig): Promise<FastifyInstance> {
   const app = Fastify({ logger: config.logger ?? false });
 
-  // DNS rebinding guard. A page on any website can point its own hostname at
-  // 127.0.0.1 and then talk to this server as if it were same-origin, reading the
-  // graph and summaries or starting model calls that cost money on the Anthropic
-  // provider. The browser still sends that website's name in the Host header, so on a
-  // loopback bind anything not addressed to a loopback name is refused. Binding to a
-  // network address is an explicit choice to be reachable, and skips the check.
+  // DNS rebinding guard. Any website can point its own hostname at 127.0.0.1 and then
+  // talk to this server as if it were same-origin, reading the graph and summaries or
+  // triggering model calls that cost money on a cloud provider. The browser still sends
+  // that site's name in the Host header, so on a loopback bind we refuse anything not
+  // addressed to a loopback name. Binding to a network address means you chose to be
+  // reachable, so the check is skipped then.
   if (isLoopback(config.host)) {
     app.addHook("onRequest", async (request, reply) => {
       if (!LOOPBACK_HOSTS.has(hostnameOf(request.headers.host))) {
@@ -239,17 +240,17 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
   const analyzer = config.analyzer ?? analyze;
 
   /**
-   * The models a provider uses. `--model` and `--embed-model` were given for the
-   * provider `serve` started with; any other provider the page switches to gets its own
-   * defaults rather than, say, an Ollama model name sent to Gemini.
+   * Models for a provider. `--model` and `--embed-model` apply to the provider `serve`
+   * started with. Any other provider the page switches to uses its own defaults, so we
+   * don't end up sending an Ollama model name to Gemini.
    */
   const modelsFor = (provider: ProviderName) => ({
     model: (provider === defaultProvider ? config.model : undefined) ?? defaultModelFor(provider),
     embedModel: (provider === defaultProvider ? config.embedModel : undefined) ?? defaultEmbedModelFor(provider),
   });
 
-  // The repository being served. Mutable: analysing another one from the page switches
-  // the whole explorer over to it.
+  // The repo being served. It can change: analysing another repo from the page switches
+  // the whole explorer over.
   const workspace = { root: config.root, cacheDir: config.cacheDir };
   let analysis: AnalysisState = { running: false };
 
@@ -297,9 +298,9 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
   if (config.initialAnalysis) startAnalysis(config.initialAnalysis);
 
   /**
-   * Whether each provider is usable now. Ollama is asked directly, which is a local call;
-   * the cloud providers are judged by whether their key is set, because asking their
-   * APIs on every status poll would cost a round trip each time.
+   * Whether each provider works right now. We ask Ollama directly since it's local. For
+   * the cloud ones we just check the key is set, because hitting their APIs on every
+   * status poll would add a round trip each time.
    */
   async function availability(): Promise<Record<ProviderName, ProviderAvailability>> {
     const local = modelsFor("ollama").model;
@@ -327,7 +328,7 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
     const providers = createProviders({ provider, model, embedModel, baseUrl: config.ollamaUrl });
 
     // Chat and embeddings can come from different backends (Claude answers, Ollama
-    // embeds), so each half is vetted against its own backend and reported separately.
+    // embeds), so check each against its own backend and report them separately.
     const [chat, embed, list] = await Promise.all([
       providers.chat.preflight(model),
       providers.embed.preflight(embedModel),
@@ -389,8 +390,8 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
 
     let job: AnalysisJob;
     if (isRepoUrl(target)) {
-      // https only: the token reaches git through a credential helper that answers
-      // https; ssh and git@ forms would use the machine's own keys instead.
+      // https only. The token gets to git through a credential helper that answers for
+      // https; ssh and git@ URLs would use the machine's own keys instead.
       if (!/^https:\/\//i.test(target)) {
         return reply.code(400).send({ error: "bad-request", message: "Use the repository's https:// URL." });
       }
@@ -414,7 +415,7 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
     const token = typeof body.token === "string" ? body.token.trim() : "";
     if (token !== "") job.token = token;
 
-    // A repository analysed before opens straight from its cache.
+    // Repo analysed before? Open it straight from the cache.
     const cached = await stat(path.join(job.cacheDir, "graph.json")).catch(() => undefined);
     if (cached && body.reanalyze !== true) {
       workspace.root = job.root;
@@ -458,8 +459,8 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
       globalRank: body.globalRank === true,
     });
 
-    // A failed ask is a reportable state, not a server error: core already produced the
-    // remediation text, so 503 plus that message is the whole response.
+    // A failed ask isn't a server error. Core already wrote the fix-it text, so a 503
+    // with that message is all we need.
     if (!result.ok) {
       return reply.code(503).send({ error: "unavailable", message: result.message ?? "Could not answer." });
     }
@@ -500,14 +501,14 @@ export async function createServer(config: ServerConfig): Promise<FastifyInstanc
   });
 
   if (config.webDist) {
-    // The web build writes .br and .gz beside each asset; serving those cuts the page
-    // from about 1MB to about 240KB for any client that is not on loopback.
+    // The web build writes .br and .gz next to every asset. Serving those takes the page
+    // from about 1MB to about 240KB for anyone not on localhost.
     await app.register(fastifyStatic, { root: config.webDist, prefix: "/", preCompressed: true });
 
-    // SPA fallback. The app's own routes get the shell so client-side routing survives
-    // a hard refresh. Other page paths get the same shell, which renders the not-found
-    // page, but with a 404 so crawlers and tools see the truth. A missing file such as
-    // /robots.txt or /favicon.ico gets a plain 404 instead of an HTML page.
+    // SPA fallback. The app's own routes get the HTML shell so a hard refresh still
+    // works. Other page paths get the same shell (which shows the not-found page) but
+    // with a 404, so crawlers and tools get the truth. A missing file like /robots.txt or
+    // /favicon.ico gets a plain 404, not an HTML page.
     app.setNotFoundHandler(async (request, reply) => {
       const pathname = new URL(request.url, "http://localhost").pathname;
       if (pathname.startsWith("/api/")) {

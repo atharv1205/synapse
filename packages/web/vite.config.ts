@@ -1,15 +1,15 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-/** The port `synapse serve` listens on. */
+/** Port `synapse serve` listens on. */
 const API_PORT = process.env.SYNAPSE_API_PORT ?? "4317";
 
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 5317,
-    // Proxying in dev means the app talks to a same-origin /api in both dev and
-    // production, so no CORS handling is needed on the server.
+    // With the dev proxy the app talks to a same-origin /api in dev and production alike,
+    // so the server doesn't need any CORS handling.
     proxy: {
       "/api": {
         target: `http://127.0.0.1:${API_PORT}`,
@@ -20,9 +20,9 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
-    // Vite inlines small assets as data: URLs by default, and a few font subsets are
-    // small enough to qualify. The server's Content-Security-Policy only allows fonts
-    // from the same origin, so keep every font a real file rather than loosen it.
+    // By default Vite inlines small assets as data: URLs, and a few font subsets are
+    // small enough for that. Our Content-Security-Policy only allows same-origin fonts,
+    // so we keep every font a real file instead of loosening the policy.
     assetsInlineLimit: (file) => (file.endsWith(".woff2") ? false : undefined),
   },
 });

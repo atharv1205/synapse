@@ -10,16 +10,16 @@ export type LayoutMessage =
   | { type: "error"; message: string };
 
 /**
- * How often progress is reported, at most.
+ * Max rate for progress updates.
  *
- * Also the delay before the first report, which is what keeps small graphs from ever
- * showing a progress screen: a layout that finishes inside this window posts nothing
- * but its result, and the app goes straight from "Loading graph" to the scene.
+ * Also the delay before the first one, which is what stops small graphs from ever showing
+ * a progress screen. A layout that finishes within this window only posts its result, and
+ * the app goes straight from "Loading graph" to the scene.
  */
 const PROGRESS_INTERVAL_MS = 150;
 
-// The web tsconfig types the global scope as a Window, whose postMessage takes a
-// target origin. This is the dedicated-worker shape actually in play here.
+// The web tsconfig types the global scope as a Window, whose postMessage wants a target
+// origin. This is the real dedicated-worker shape.
 const scope = self as unknown as {
   onmessage: ((event: MessageEvent<LayoutRequest>) => void) | null;
   postMessage(message: LayoutMessage, transfer?: Transferable[]): void;

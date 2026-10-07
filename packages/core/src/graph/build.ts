@@ -14,9 +14,9 @@ import type {
 import type { ImportResolver } from "./resolve.js";
 import { DEFAULT_WEIGHTS, normalize, normalizeChurn, round, type ScoreWeights } from "./score.js";
 
-// graphology and graphology-metrics both ship CJS whose .d.ts declares an ES default
-// export. NodeNext resolves these imports to the module object rather than the class and
-// function they actually are at runtime, so re-type them once here.
+// graphology and graphology-metrics ship CJS with a .d.ts that claims an ES default
+// export. Under NodeNext the import comes back as the module object, not the
+// class/function it really is at runtime, so we fix up the types once here.
 const DirectedGraph = graphologyModule as unknown as new (options?: {
   type?: "directed" | "undirected" | "mixed";
   multi?: boolean;
@@ -35,7 +35,7 @@ export interface BuildInput {
   churn: Map<string, number>;
   churnAvailable: boolean;
   weights?: ScoreWeights;
-  /** Files that never made it into `parsed`, carried through into the stats. */
+  /** Files that never made it into `parsed`. We pass them through to the stats. */
   parseFailures?: ParseFailure[];
 }
 
@@ -47,7 +47,7 @@ export interface BuildResult {
   stats: GraphStats;
 }
 
-/** Collapses repeated relationships between the same pair into one weighted edge. */
+/** Merge repeated links between the same two nodes into one weighted edge. */
 function collapse(pairs: Array<{ from: string; to: string }>, type: GraphEdge["type"]): GraphEdge[] {
   const weights = new Map<string, Map<string, number>>();
   for (const { from, to } of pairs) {
@@ -67,9 +67,9 @@ function collapse(pairs: Array<{ from: string; to: string }>, type: GraphEdge["t
 }
 
 /**
- * PageRank over a graph whose edges point importer -> imported, so importance
- * flows toward the modules everything depends on. Isolated nodes still get the
- * uniform baseline rank, which is what we want: they are simply not central.
+ * PageRank with edges going importer -> imported, so importance flows to the stuff
+ * everything depends on. Isolated nodes still get the baseline rank, which is fine, they
+ * just aren't central.
  */
 function pagerankScores(nodeIds: string[], edges: GraphEdge[]): Map<string, number> {
   const graph = new DirectedGraph({ type: "directed", multi: false, allowSelfLoops: false });
@@ -95,7 +95,7 @@ export function buildGraph(input: BuildInput): BuildResult {
 
   // --- Declarations -----------------------------------------------------------
   const symbolsByFile = new Map<string, FunctionSymbol[]>();
-  /** file -> name -> symbol id, for resolving imports of packages and calls. */
+  /** file -> name -> symbol id. Used to resolve package imports and calls. */
   const symbolIndex = new Map<string, Map<string, string>>();
 
   for (const file of input.files) {
@@ -105,7 +105,7 @@ export function buildGraph(input: BuildInput): BuildResult {
 
     const index = new Map<string, string>();
     for (const symbol of symbols) {
-      // Prefer the first declaration when a simple name is reused (e.g. two `render` methods).
+      // If a name shows up twice (two `render` methods, say), keep the first one.
       if (!index.has(symbol.name)) index.set(symbol.name, symbol.id);
       index.set(symbol.qualifiedName, symbol.id);
     }
@@ -116,7 +116,7 @@ export function buildGraph(input: BuildInput): BuildResult {
   const importPairs: Array<{ from: string; to: string }> = [];
   let externalImports = 0;
 
-  /** For each file, local binding name -> the repo file it was imported from. */
+  /** Per file: local binding name -> the repo file it came from. */
   const bindingOrigins = new Map<string, Map<string, string>>();
 
   for (const file of input.files) {
@@ -134,8 +134,8 @@ export function buildGraph(input: BuildInput): BuildResult {
       }
 
       if (ref.uses) {
-        // A package import: keep the package's files that declare a name the importer
-        // uses, and bind each name to its file so calls through it resolve.
+        // Package import: keep only the package files that declare something the importer
+        // uses, and remember which file each name came from so calls through it resolve.
         const declaring = targets.filter((target) => {
           const index = symbolIndex.get(target);
           let hit = false;
@@ -147,9 +147,9 @@ export function buildGraph(input: BuildInput): BuildResult {
           }
           return hit;
         });
-        // An implicit dependency, or a Java wildcard, exists only through what is used.
-        // A Go import whose uses match nothing (constants, variables, which are not
-        // declarations here) still depends on the package, since Go rejects unused imports.
+        // Implicit deps and Java wildcards only exist through what's actually used. A Go
+        // import that matches nothing (probably constants or vars, which we don't track)
+        // still counts, because Go won't compile unused imports anyway.
         const keepAll = declaring.length === 0 && ref.kind === "go" && !ref.implicit;
         targets = keepAll ? targets : declaring;
       }
@@ -173,7 +173,7 @@ export function buildGraph(input: BuildInput): BuildResult {
     inDegree.set(edge.to, (inDegree.get(edge.to) ?? 0) + 1);
   }
 
-  // Without git history, churn carries no signal and centrality should take the full weight.
+  // No git history means churn tells us nothing, so give centrality all the weight.
   const churnWeight = input.churnAvailable ? weights.churn : 0;
   const totalWeight = weights.centrality + churnWeight;
 
@@ -188,9 +188,9 @@ export function buildGraph(input: BuildInput): BuildResult {
     const bindings = bindingOrigins.get(file.path);
 
     for (const call of parsed.calls) {
-      if (!call.enclosing) continue; // module-level calls have no source function
+      if (!call.enclosing) continue; // module-level calls have no caller function
 
-      // Resolve against the same file first, then against whatever that name was imported from.
+      // Look in the same file first, then in whatever the name was imported from.
       let target = localIndex?.get(call.callee);
       if (!target) {
         const origin = bindings?.get(call.callee);
@@ -213,7 +213,7 @@ export function buildGraph(input: BuildInput): BuildResult {
     ),
   );
 
-  // functionNodes is the canonical list; file nodes reference these by id.
+  // functionNodes is the real list; file nodes just point into it by id.
   const functionNodes: FunctionNode[] = [];
   const functionIdsByFile = new Map<string, string[]>();
 

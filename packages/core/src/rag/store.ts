@@ -7,9 +7,9 @@ export const INDEX_FILENAME = "embeddings.json";
 export const VECTORS_FILENAME = "embeddings.bin";
 
 /**
- * Each embedding model keeps its own pair of files, so switching the explorer between the
- * local model and Gemini does not throw away the other's index and re-embed everything.
- * The default local model keeps the original names, so indexes built before this load.
+ * Each embedding model gets its own pair of files, so switching the explorer between
+ * local and Gemini doesn't wipe the other index and re-embed everything. The default
+ * local model keeps the old file names so existing indexes still load.
  */
 export function indexFiles(model: string): { manifest: string; vectors: string } {
   if (model === DEFAULT_EMBED_MODEL) return { manifest: INDEX_FILENAME, vectors: VECTORS_FILENAME };
@@ -17,58 +17,58 @@ export function indexFiles(model: string): { manifest: string; vectors: string }
   return { manifest: `embeddings-${slug}.json`, vectors: `embeddings-${slug}.bin` };
 }
 
-/** A stored chunk plus the vector it embedded to. */
+/** A stored chunk plus its vector. */
 export interface StoredChunk extends Chunk {
-  /** Model that produced the vector; a change invalidates the entry. */
+  /** Model that made the vector. If it changes, the entry is stale. */
   model: string;
 }
 
 export interface SearchHit {
   chunk: StoredChunk;
-  /** Cosine similarity in -1..1; 1 is identical. */
+  /** Cosine similarity, -1..1. 1 means identical. */
   score: number;
 }
 
 export interface SearchOptions {
   /**
-   * Reserve half the results for each chunk kind.
+   * Give each chunk kind half the result slots.
    *
-   * File chunks carry a path, a summary, a full declaration list and graph metrics, so
-   * they average noticeably more text than function chunks. That breadth makes them
-   * score moderately well against almost any query, and on a purely global ranking they
-   * crowd out the shorter function chunks that hold the specific answer. Reserving
-   * seats per kind keeps fine-grained chunks in the results.
+   * File chunks have a path, a summary, the full declaration list and graph metrics, so
+   * they're a fair bit longer than function chunks. That makes them score okay against
+   * pretty much any query, and with one global ranking they push out the shorter function
+   * chunks that hold the specific answer. Reserving slots per kind keeps the detailed
+   * chunks in.
    */
   balanceKinds?: boolean;
 }
 
 /**
- * The contract the RAG pass depends on. Brute-force cosine is the only implementation
- * today; an ANN-backed store would slot in here without touching anything upstream.
+ * What the RAG code relies on. Brute-force cosine is the only implementation right now;
+ * an ANN store could plug in here without changing anything else.
  */
 export interface VectorStore {
   readonly size: number;
   readonly dim: number;
-  /** Vector for a chunk whose text and model are unchanged, if one is held. */
+  /** Vector for a chunk whose text and model haven't changed, if we have one. */
   reusable(chunk: Chunk, model: string): Float32Array | undefined;
-  /** Replaces the contents wholesale with this set. */
+  /** Replace everything with this set. */
   replace(entries: Array<{ chunk: StoredChunk; vector: Float32Array }>): void;
   search(query: Float32Array, k: number, options?: SearchOptions): SearchHit[];
   save(): Promise<void>;
 }
 
-/** Most similar first, with file importance breaking exact ties. */
+/** Most similar first, file importance breaks exact ties. */
 function byRelevance(a: SearchHit, b: SearchHit): number {
   return b.score - a.score || b.chunk.importance - a.chunk.importance;
 }
 
-/** Scales a vector to unit length so a dot product is cosine similarity. */
+/** Scale a vector to unit length so the dot product is cosine similarity. */
 export function normalizeVector(values: ArrayLike<number>): Float32Array {
   const out = new Float32Array(values.length);
   let sumSquares = 0;
   for (let i = 0; i < values.length; i++) sumSquares += values[i]! * values[i]!;
 
-  // A zero vector has no direction; leave it at zero rather than dividing by zero.
+  // A zero vector has no direction. Leave it at zero instead of dividing by zero.
   const norm = Math.sqrt(sumSquares);
   if (norm === 0) return out;
 
@@ -84,12 +84,13 @@ interface IndexManifest {
 }
 
 /**
- * Vectors live in one flat Float32Array and searches are an exhaustive dot product.
+ * All vectors sit in one flat Float32Array and search is a plain dot product over all of
+ * them.
  *
- * That is deliberate. Synapse indexes one chunk per file plus a few per summarised
- * file, so a large repo lands in the low tens of thousands of chunks — measured at
- * roughly 6ms per query at 5,000 chunks and 60ms at 50,000. An ANN index would add a
- * native dependency to save time that is not being spent.
+ * That's on purpose. We index one chunk per file plus a few per summarised file, so even
+ * a big repo ends up in the low tens of thousands of chunks. Measured: about 6ms per
+ * query at 5,000 chunks, 60ms at 50,000. An ANN index would mean a native dependency to
+ * save time we're not actually spending.
  */
 export class BruteForceStore implements VectorStore {
   private constructor(
@@ -97,7 +98,7 @@ export class BruteForceStore implements VectorStore {
     private model: string,
     private dimension: number,
     private chunks: StoredChunk[],
-    /** All vectors concatenated: chunk i occupies [i*dim, (i+1)*dim). */
+    /** All vectors back to back: chunk i sits at [i*dim, (i+1)*dim). */
     private vectors: Float32Array,
   ) {}
 
@@ -105,7 +106,7 @@ export class BruteForceStore implements VectorStore {
     return new BruteForceStore(dir, model, 0, [], new Float32Array(0));
   }
 
-  /** Loads an existing index, treating anything unreadable or stale as empty. */
+  /** Load an existing index. Anything unreadable or stale counts as empty. */
   static async load(dir: string, model: string): Promise<BruteForceStore> {
     const files = indexFiles(model);
     try {
@@ -123,7 +124,7 @@ export class BruteForceStore implements VectorStore {
         raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength),
       );
 
-      // A manifest that disagrees with its vector file cannot be trusted.
+      // If the manifest and the vector file disagree, don't trust either.
       if (vectors.length !== expected) return BruteForceStore.empty(dir, model);
 
       return new BruteForceStore(dir, manifest.model, manifest.dim, manifest.entries, vectors);
@@ -161,12 +162,12 @@ export class BruteForceStore implements VectorStore {
   }
 
   /**
-   * Exhaustive cosine search. Vectors are stored unit-length, so the dot product is
-   * the similarity and no per-comparison normalisation is needed.
+   * Brute-force cosine search. Vectors are stored at unit length, so the dot product
+   * already is the similarity.
    *
-   * With `balanceKinds`, each kind is guaranteed floor(k/2) seats and any remaining
-   * seats go to the best unclaimed chunks regardless of kind. That keeps the behaviour
-   * sensible when one kind is scarce, or when k is odd or 1.
+   * With `balanceKinds`, each kind gets at least floor(k/2) slots, and leftover slots go
+   * to the best remaining chunks of any kind. That still works when one kind is rare, or
+   * k is odd or 1.
    */
   search(query: Float32Array, k: number, options: SearchOptions = {}): SearchHit[] {
     if (this.chunks.length === 0 || this.dimension === 0) return [];
@@ -204,7 +205,7 @@ export class BruteForceStore implements VectorStore {
       }
     }
 
-    // Whatever is left over goes to the best chunks still unclaimed, whatever their kind.
+    // Leftover slots go to the best chunks not picked yet, any kind.
     for (let i = 0; i < scored.length && picked.length < limit; i++) {
       if (claimed.has(i)) continue;
       claimed.add(i);
@@ -230,7 +231,7 @@ export class BruteForceStore implements VectorStore {
     await writeFile(path.join(this.dir, files.vectors), Buffer.from(this.vectors.buffer));
   }
 
-  /** Removes both files, for tests and for forcing a clean rebuild. */
+  /** Delete both files. For tests, or to force a clean rebuild. */
   async clear(): Promise<void> {
     const files = indexFiles(this.model);
     await rm(path.join(this.dir, files.manifest), { force: true });

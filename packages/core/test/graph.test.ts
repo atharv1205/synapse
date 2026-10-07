@@ -24,7 +24,7 @@ describe("score normalisation", () => {
 
   it("compresses heavy-tailed churn so one outlier cannot flatten the rest", () => {
     const out = normalizeChurn(new Map([["a", 0], ["b", 10], ["c", 400]]));
-    // Under plain min-max, b would land at 0.025; log scaling keeps it legible.
+    // With plain min-max b would end up at 0.025. Log scaling keeps it visible.
     assert.ok(out.get("b")! > 0.35, `expected b to stay visible, got ${out.get("b")}`);
     assert.equal(out.get("a"), 0);
     assert.equal(out.get("c"), 1);
@@ -111,8 +111,8 @@ describe("analyze — fixture repo", () => {
   });
 
   it("lets churn break ties between files of equal centrality", () => {
-    // app.ts and orphan.ts are both imported by nothing, so centrality is all they share;
-    // app.ts has more commits and must therefore rank higher.
+    // Nothing imports app.ts or orphan.ts, so centrality is the same for both. app.ts has
+    // more commits, so it has to rank higher.
     assert.equal(nodeFor("app.ts").metrics.inDegree, nodeFor("orphan.ts").metrics.inDegree);
     assert.ok(nodeFor("app.ts").metrics.churnScore > nodeFor("orphan.ts").metrics.churnScore);
   });
@@ -130,14 +130,14 @@ describe("analyze — fixture repo", () => {
       hub.functions.every((id) => typeof id === "string"),
       "file nodes should carry ids, not copies",
     );
-    // Every id must resolve, or the graph is internally inconsistent.
+    // Every id has to resolve, otherwise the graph contradicts itself.
     const index = functionIndex(graph);
     for (const node of graph.nodes) {
       for (const id of node.functions) {
         assert.ok(index.has(id), `${node.path} references a missing declaration ${id}`);
       }
     }
-    // And every declaration must be claimed by exactly one file.
+    // And every declaration has to belong to exactly one file.
     const claimed = graph.nodes.flatMap((n) => n.functions);
     assert.equal(new Set(claimed).size, graph.functionNodes.length);
   });
@@ -157,10 +157,10 @@ describe("analyze — fixture repo", () => {
 
   // --- regression: tree-sitter's 32KB string limit -------------------------
   //
-  // Parser.parse() threw "Invalid argument" on any string of 32,768 characters or more,
-  // and analyze() swallowed it, so every file above 32KB silently vanished from the
-  // graph — 515 of 18,851 files on home-assistant/core, weighted toward the largest and
-  // most depended-on files. These assertions fail loudly if that ever returns.
+  // Parser.parse() threw "Invalid argument" for any string of 32,768 chars or more, and
+  // analyze() swallowed it, so every file over 32KB silently vanished from the graph.
+  // That was 515 of 18,851 files on home-assistant/core, mostly the biggest and most
+  // imported ones. These checks fail loudly if it ever comes back.
 
   it("parses a file larger than the old 32KB parser limit", async () => {
     const source = await readFile(path.join(fixture.root, "big.ts"), "utf8");
@@ -180,7 +180,7 @@ describe("analyze — fixture repo", () => {
     const names = resolveFunctions(graph, nodeFor("big.ts")).map((f) => f.name);
     assert.ok(names.length > 10, `expected many declarations, got ${names.length}`);
     assert.ok(names.includes("bulky0"), "the first declaration should be present");
-    // Declared on the final line: if the parse were truncated, this would be absent.
+    // Declared on the last line. If the parse got cut short, it'd be missing.
     assert.ok(names.includes("lastDeclaration"), "the last declaration should be present");
   });
 
@@ -192,14 +192,14 @@ describe("analyze — fixture repo", () => {
   });
 
   it("counts an oversized file toward the importance of what it imports", () => {
-    // hub.ts is imported by app, util, lib/index and big — the last of which the old
-    // parser lost, silently understating hub's centrality.
+    // hub.ts is imported by app, util, lib/index and big. The old parser lost big, so
+    // hub's centrality came out too low without anyone noticing.
     assert.equal(nodeFor("hub.ts").metrics.inDegree, 4);
   });
 
   it("carries parse failures through into the stats", async () => {
-    // The fix removed the only known cause, so the reporting path is exercised
-    // directly — otherwise a future regression would have nothing asserting on it.
+    // The fix removed the only known cause, so we test the reporting directly. Otherwise
+    // nothing would check it if a new cause shows up.
     const { buildGraph } = await import("../src/graph/build.js");
     const built = buildGraph({
       files: [],

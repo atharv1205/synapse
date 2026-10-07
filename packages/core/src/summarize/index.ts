@@ -21,9 +21,9 @@ export { SummaryCache, contentHash, CACHE_FILENAME } from "./cache.js";
 export { PROMPT_VERSION, MAX_SOURCE_CHARS, buildFilePrompt, truncateSource } from "./prompt.js";
 
 /**
- * The slice of LlmProvider that summarisation needs. Both OllamaClient and
- * AnthropicClient satisfy it, which is what lets the prompt-building code below stay
- * identical no matter which provider is in use.
+ * The part of LlmProvider that summarising needs. Every client (Ollama, Gemini,
+ * Anthropic) fits it, which is why the prompt code below doesn't care which one is in
+ * use.
  */
 export interface SummarizerBackend {
   readonly model: string;
@@ -34,22 +34,22 @@ export interface SummarizerBackend {
 export const DEFAULT_SUMMARIZE_TOP = 50;
 
 export interface SummarizeOptions extends ProviderOptions {
-  /** Repo root, for reading file contents. */
+  /** Repo root, for reading files. */
   root: string;
   /** Where summaries.json lives. */
   cacheDir: string;
-  /** How many of the most important files to summarise. */
+  /** How many of the top files to summarise. */
   topN?: number;
-  /** Concurrent requests to Ollama. Kept low: one local model serves them all. */
+  /** Parallel requests. Kept low since one local model handles all of them. */
   concurrency?: number;
-  /** Injected in tests; defaults to a real OllamaClient. */
+  /** Tests pass a fake here. Defaults to a real OllamaClient. */
   backend?: SummarizerBackend;
   onProgress?: (message: string) => void;
 }
 
 /**
- * Counts how many resolved call sites target each function, which is the ranking used
- * to pick the handful of functions per file that get their own summary.
+ * Count how many resolved calls point at each function. That's how we pick the few
+ * functions per file that get their own summary.
  */
 export function callCounts(graph: RepoGraph): Map<string, number> {
   const counts = new Map<string, number>();
@@ -59,7 +59,7 @@ export function callCounts(graph: RepoGraph): Map<string, number> {
   return counts;
 }
 
-/** Picks a file's most-called functions, falling back to importance to break ties. */
+/** A file's most-called functions, with importance as the tie-breaker. */
 export function rankFunctions(
   declarations: FunctionNode[],
   counts: Map<string, number>,
@@ -82,10 +82,10 @@ export function rankFunctions(
 }
 
 /**
- * Copies a cached or freshly generated summary onto the file node and its declarations.
+ * Copy a cached or fresh summary onto the file node and its declarations.
  *
- * Each declaration now exists exactly once, in `functionNodes`, so writing a summary
- * once is enough — there is no second copy on the file node to keep in step.
+ * Declarations only exist once now, in `functionNodes`, so writing the summary once is
+ * enough. No second copy on the file node to keep in sync.
  */
 function attach(node: FileNode, entry: CachedSummary, declarations: FunctionNode[]): void {
   node.summary = entry.summary;
@@ -96,11 +96,11 @@ function attach(node: FileNode, entry: CachedSummary, declarations: FunctionNode
 }
 
 /**
- * Summarises the most important files in `graph` and attaches the results in place.
+ * Summarise the top files in `graph` and attach the results in place.
  *
- * Never throws for an unavailable Ollama or an unpulled model: those come back as a
- * report with `ran: false` and a remediation message, so the analyse run still produces
- * a graph. Individual file failures are counted and skipped for the same reason.
+ * Doesn't throw if Ollama is down or the model isn't pulled. You get a report with
+ * `ran: false` and what to do, so analyse still produces a graph. Single files that fail
+ * are counted and skipped for the same reason.
  */
 export async function summarizeGraph(
   graph: RepoGraph,
@@ -128,11 +128,12 @@ export async function summarizeGraph(
 
   const preflight = await backend.preflight();
   if (!preflight.ok) {
-    // preflight is shared with the RAG pass, so the opt-out hint belongs here.
+    // preflight is shared with the RAG code, so the --skip-summarize hint gets added
+    // here.
     return { ...base, message: `${preflight.message}\n  Or skip this pass with --skip-summarize.` };
   }
 
-  // graph.nodes is already sorted by importance descending.
+  // graph.nodes is already sorted by importance, highest first.
   const selected = graph.nodes.slice(0, Math.max(0, topN));
   if (selected.length === 0) {
     return { ...base, ran: true, message: "No files to summarise." };
@@ -222,8 +223,8 @@ export async function summarizeGraph(
 }
 
 /**
- * Normalises a model response into a cache entry. Only function names the file actually
- * declares are kept, so a hallucinated name cannot end up attached to the graph.
+ * Turn a model response into a cache entry. We only keep function names the file really
+ * declares, so a made-up name can't end up in the graph.
  */
 function toEntry(
   node: FileNode,

@@ -5,16 +5,16 @@ import * as THREE from "three";
 import type { Cluster, ClusterEdge } from "../clusters";
 import type { Layout, PositionedNode } from "../layout";
 
-/** Distinct hues for directory colouring, spaced so neighbours stay distinguishable. */
+/** Hues for colouring by directory, spread out so neighbours are easy to tell apart. */
 const DIRECTORY_HUES = [0.53, 0.09, 0.35, 0.78, 0.14, 0.47, 0.93, 0.62, 0.24, 0.86];
 
-/** The darkfield the whole UI sits on; matches `--field` in tokens.css. */
+/** The dark background everything sits on. Same as `--field` in tokens.css. */
 const FIELD = "#0b1020";
 
 /**
- * The importance ramp, as fluorescent stains: dim cyan for the long tail, then cyan,
- * green and amber for the files that matter. Mirrors `--importance-ramp` in tokens.css,
- * which the toolbar legend draws, so the legend and the nodes agree.
+ * The importance colours, like fluorescent stains: dim cyan for the long tail, then cyan,
+ * green and amber for files that matter. Same as `--importance-ramp` in tokens.css, which
+ * the toolbar legend uses, so the legend matches the nodes.
  */
 const RAMP = [
   { at: 0, color: new THREE.Color("#2b6f88") },
@@ -26,33 +26,33 @@ const RAMP = [
 export type ColorMode = "importance" | "directory";
 
 /**
- * "tool" is the explorer at /graph. "showcase" is the landing hero: it turns slowly on
- * its own, cannot be zoomed (so the page still scrolls under the pointer), and does not
+ * "tool" is the explorer at /graph. "showcase" is the landing page hero: it slowly spins
+ * on its own, can't be zoomed (so the page still scrolls under your mouse) and doesn't
  * select nodes.
  */
 export type SceneMode = "tool" | "showcase";
 
 export interface SceneProps {
   layout: Layout;
-  /** Nodes with importance below this are dimmed and shrunk. */
+  /** Nodes below this importance get dimmed and shrunk. */
   threshold: number;
   colorMode: ColorMode;
   selectedIndex?: number;
-  /** Indices highlighted because a Q&A answer cited them. */
+  /** Indices to highlight because an answer cited them. */
   citedIndices: number[];
   onSelect(index: number): void;
   /**
-   * Per node index, 1 for files folded into a collapsed folder bubble. Hidden files are
-   * drawn at zero size, so they cannot be clicked, and their edges and labels are skipped.
+   * Per node index: 1 for files folded into a collapsed folder bubble. Hidden files are
+   * drawn at size zero so they can't be clicked, and their edges and labels are skipped.
    */
   hidden?: Uint8Array;
 }
 
-/** The folder bubbles drawn in place of collapsed folders' files. */
+/** Folder bubbles drawn instead of the files of collapsed folders. */
 export interface ClusterView {
   clusters: Cluster[];
   edges: ClusterEdge[];
-  /** Per cluster index, 1 while it is collapsed into a bubble. */
+  /** Per cluster index: 1 while it's collapsed into a bubble. */
   collapsed: Uint8Array;
   selected?: number;
   onSelect(cluster: number): void;
@@ -73,9 +73,9 @@ function colorFor(
 }
 
 /**
- * Importance is PageRank-shaped, with nearly every file near zero, so the ramp reads
- * sqrt(importance): the same curve node size uses, which spreads the long tail enough
- * for the middle stains to show up at all.
+ * Importance looks like PageRank, with almost every file near zero, so the colour uses
+ * sqrt(importance). Same curve as node size. It spreads out the long tail enough that the
+ * middle colours actually show up.
  */
 function rampColor(importance: number, target: THREE.Color): THREE.Color {
   const t = Math.sqrt(Math.min(1, Math.max(0, importance)));
@@ -90,15 +90,14 @@ function rampColor(importance: number, target: THREE.Color): THREE.Color {
 }
 
 /**
- * Node radius in world units, as a fraction of the framing radius rather than an
- * absolute size.
+ * Node radius in world units, as a fraction of the framing radius instead of a fixed
+ * size.
  *
- * Fixed world-unit sizes only look right at one scale. At 1.6 + sqrt(importance) * 5.4
- * a typical node was a comfortable 7px on a 26-file graph and 0.40px on an 18,851-file
- * one — present, unclipped, and far too small to see, which is why that scene still read
- * as empty after the clipping fix. Scaling with the framing radius keeps apparent size
- * constant: roughly 3.5px for a typical node and 14px for the most important one, at any
- * graph size.
+ * Fixed sizes only look right at one scale. With 1.6 + sqrt(importance) * 5.4, a typical
+ * node was a nice 7px on a 26-file graph and 0.40px on an 18,851-file one: there, not
+ * clipped, but way too small to see. That's why the big scene still looked empty after
+ * the clipping fix. Scaling with the framing radius keeps nodes the same size on screen,
+ * about 3.5px for a typical one and 14px for the most important, whatever the graph size.
  */
 function radiusFor(positioned: PositionedNode, framingRadius: number): number {
   const t = Math.min(1, Math.max(0, positioned.node.importance));
@@ -106,10 +105,10 @@ function radiusFor(positioned: PositionedNode, framingRadius: number): number {
 }
 
 /**
- * Every node is one instance of a single mesh, so the whole graph is one draw call
- * regardless of size. Thousands of individual meshes would each cost a draw call and
- * tank the framerate long before the node count itself became a problem — which is why
- * the importance threshold fades and shrinks nodes rather than unmounting them.
+ * Every node is an instance of one mesh, so the whole graph is a single draw call no
+ * matter how big. Thousands of separate meshes would each cost a draw call and kill the
+ * framerate long before the node count did. That's also why the importance threshold
+ * fades and shrinks nodes instead of unmounting them.
  */
 function Nodes({
   layout,
@@ -130,7 +129,7 @@ function Nodes({
     [],
   );
 
-  // A unit sphere; every node's real radius is folded into its instance matrix.
+  // A unit sphere. Each node's real radius goes into its instance matrix.
   const geometry = useMemo(() => new THREE.SphereGeometry(1, 16, 12), []);
   useEffect(() => () => geometry.dispose(), [geometry]);
 
@@ -145,8 +144,8 @@ function Nodes({
       const isSelected = selectedIndex === positioned.index;
       const isCited = cited.has(positioned.index);
 
-      // Below the threshold a node stays present but small, so it remains a landmark
-      // without competing for attention. Selected and cited nodes always show at size.
+      // Below the threshold a node stays but gets small, so it's still a landmark without
+      // grabbing attention. Selected and cited nodes always show at full size.
       const emphasis = isSelected ? 1.5 : isCited ? 1.25 : 1;
       const dimming = visible || isSelected || isCited ? 1 : 0.3;
       const scale = hidden?.[positioned.index] ? 0 : radiusFor(positioned, framing) * nodeScale * emphasis * dimming;
@@ -191,27 +190,27 @@ interface Anchor {
   x: number;
   y: number;
   z: number;
-  /** Shown even when it overlaps, e.g. the selected item. */
+  /** Shown even if it overlaps something, e.g. the selected item. */
   always?: boolean;
 }
 
 /**
- * Every label on the map, from every layer, so overlaps are judged across all of them:
- * an expanded folder's file names and the folder bubbles' names must not pile up on
- * each other any more than within their own set. Groups are checked in the order they
- * are listed in `GROUP_ORDER`, and anything marked `always` goes first.
+ * All the labels on the map, from every layer, so we check overlaps across all of them.
+ * An open folder's file names and the folder bubble names shouldn't pile on top of each
+ * other any more than within their own set. Groups are checked in `GROUP_ORDER` order,
+ * and anything marked `always` goes first.
  */
 class LabelRegistry {
   readonly groups = new Map<string, Anchor[]>();
   readonly elements = new Map<string, HTMLElement>();
 }
 
-/** Files before folders: a folder was expanded precisely to read its files' names. */
+/** Files before folders: you opened a folder to read its file names. */
 const GROUP_ORDER = ["files", "folders"];
 
 /**
- * Registers one layer's labels and returns a ref factory for their elements. Keys are
- * namespaced by group, so a file and a folder never collide.
+ * Register one layer's labels and get back a ref factory for their elements. Keys are
+ * prefixed with the group, so a file and a folder never clash.
  */
 function useLabelGroup(registry: LabelRegistry, group: string, anchors: Anchor[]) {
   useEffect(() => {
@@ -232,9 +231,9 @@ function useLabelGroup(registry: LabelRegistry, group: string, anchors: Anchor[]
 }
 
 /**
- * Hides any label that would overlap one placed before it. Checked a few times a second
- * against where the labels sit on screen, so a label reappears as soon as rotating the
- * graph gives it room.
+ * Hide any label that would overlap one already placed. Runs a few times a second against
+ * where the labels actually are on screen, so a label comes back as soon as rotating the
+ * graph makes room for it.
  */
 function LabelCollisions({ registry }: { registry: LabelRegistry }) {
   const camera = useThree((state) => state.camera);
@@ -246,7 +245,7 @@ function LabelCollisions({ registry }: { registry: LabelRegistry }) {
     const ordered = GROUP_ORDER.flatMap((group) =>
       (registry.groups.get(group) ?? []).map((anchor) => ({ group, anchor })),
     );
-    // Selected items first, whatever their layer, so they always win.
+    // Selected stuff first, whatever layer it's in, so it always wins.
     ordered.sort((a, b) => Number(Boolean(b.anchor.always)) - Number(Boolean(a.anchor.always)));
 
     const placed: Array<[number, number, number, number]> = [];
@@ -255,8 +254,8 @@ function LabelCollisions({ registry }: { registry: LabelRegistry }) {
       if (!element) continue;
       scratch.set(anchor.x, anchor.y, anchor.z).project(camera);
       const behind = scratch.z > 1;
-      // Where the label really is, which a hidden label still has. Re-deriving it from
-      // the projection drifted from drei's placement under the panel's view offset, and
+      // Where the label really is (hidden labels still have a box). Working it out from
+      // the projection drifted away from drei's placement with the panel view offset, and
       // let a file name sit on top of a folder name.
       const rect = element.getBoundingClientRect();
       const box: [number, number, number, number] = [rect.left - 1, rect.top - 1, rect.right + 1, rect.bottom + 1];
@@ -270,12 +269,12 @@ function LabelCollisions({ registry }: { registry: LabelRegistry }) {
   return null;
 }
 
-/** How many of the most important prominent files get a name on the map. */
+/** How many of the top highlighted files get a name on the map. */
 const LABEL_COUNT = 12;
 
 /**
- * The name a label shows: the file name, or `folder/file` for names that say nothing on
- * their own, like `index.ts` or `__init__.py`, of which a repository has dozens.
+ * Text for a label: the file name, or `folder/file` for names that mean nothing on their
+ * own, like `index.ts` or `__init__.py`. Repos have dozens of those.
  */
 export function labelFor(filePath: string): string {
   const parts = filePath.split("/");
@@ -285,13 +284,13 @@ export function labelFor(filePath: string): string {
 }
 
 /**
- * Names on the map for the files that matter most, so the important ones can be found by
- * eye without clicking around. Only the top few prominent files and the selected one are
- * labelled; naming every node would bury the graph.
+ * Names on the map for the most important files, so you can spot them without clicking
+ * around. Only the top few highlighted files and the selected one get a label; naming
+ * every node would bury the graph.
  *
- * These are DOM labels (drei's Html), not 3D text: they stay crisp at any zoom, and drei's
- * 3D text builds a worker from a blob: URL, which the server's Content-Security-Policy
- * refuses. They sit below the panels, which carry z-index 2.
+ * These are DOM labels (drei's Html), not 3D text. They stay sharp at any zoom, and
+ * drei's 3D text builds a worker from a blob: URL, which our Content-Security-Policy
+ * blocks. They sit under the panels, which have z-index 2.
  */
 function Labels({
   layout,
@@ -314,13 +313,13 @@ function Labels({
       .sort((a, b) => b.node.importance - a.node.importance)
       .slice(0, LABEL_COUNT);
     const selected = layout.nodes.find((n) => n.index === selectedIndex);
-    // The selected file goes first, so it wins every overlap below.
+    // Selected file goes first so it wins every overlap below.
     if (selected && !hidden?.[selected.index]) return [selected, ...top.filter((n) => n !== selected)];
     return top;
   }, [layout, threshold, selectedIndex, hidden]);
 
   // Two labelled files with the same name (src/flask/app.py, src/flask/sansio/app.py)
-  // would be indistinguishable, so clashing names get their folder.
+  // would look identical, so clashing names get their folder.
   const names = useMemo(() => {
     const short = labelled.map((n) => labelFor(n.node.path));
     return short.map((name, i) => {
@@ -346,7 +345,7 @@ function Labels({
   return (
     <>
       {labelled.map((positioned, i) => {
-        // Lift the label just clear of its sphere, whose radius scales with the frame.
+        // Lift the label just above its sphere, whose radius scales with the frame.
         const lift = radiusFor(positioned, framing) * 1.6;
         return (
           <Html
@@ -371,11 +370,11 @@ function Labels({
 }
 
 /**
- * All edges live in one LineSegments buffer — again one draw call.
+ * All edges go in one LineSegments buffer, so again one draw call.
  *
- * Direction is shown by a per-vertex colour gradient: each line starts dim at the
- * importer and brightens toward the file being imported. At this density arrowheads
- * would be unreadable clutter, but a gradient reads at a glance even when zoomed out.
+ * Direction is shown with a colour gradient per vertex: each line starts dim at the
+ * importer and gets brighter towards the file it imports. Arrowheads would just be
+ * clutter at this density, but a gradient reads fine even zoomed out.
  */
 function Edges({
   layout,
@@ -449,11 +448,11 @@ interface Frame {
 }
 
 /**
- * What the folders view frames: every folder bubble, rather than the important files the
- * files view frames. Test and example folders often sit well away from the core, and a
- * folder view that cut them off would hide most bubbles. The centre is the middle of the
- * bubbles' bounding box, not their file-weighted centroid: on home-assistant two giant
- * overflow bubbles pulled a weighted centre to one end, pushing the rest off-screen.
+ * What the folders view frames: every folder bubble, not just the important files like
+ * the files view. Test and example folders often sit far from the core, and cutting them
+ * off would hide most of the bubbles. The centre is the middle of the bubbles' bounding
+ * box, not a file-weighted centre: on home-assistant two giant overflow bubbles dragged a
+ * weighted centre to one side and pushed everything else off screen.
  */
 function clusterFrame(clusters: Cluster[], floor: number): Frame {
   if (clusters.length === 0) return { center: { x: 0, y: 0, z: 0 }, radius: floor };
@@ -463,19 +462,19 @@ function clusterFrame(clusters: Cluster[], floor: number): Frame {
   };
   const center = { x: mid("x"), y: mid("y"), z: mid("z") };
   const furthest = Math.max(...clusters.map((c) => Math.hypot(c.x - center.x, c.y - center.y, c.z - center.z)));
-  // The camera sits 1.6 radii out, which with a 55° field of view shows about 0.8 radii
-  // above and below the centre, and less when the error banner shortens the canvas.
+  // The camera sits 1.6 radii out. With a 55° field of view that shows about 0.8 radii
+  // above and below the centre, and less when the error banner makes the canvas shorter.
   return { center, radius: Math.max(furthest * 1.4, floor) };
 }
 
-/** How many folder bubbles get a name; the largest first, plus the selected one. */
+/** How many folder bubbles get a name: the biggest ones first, plus the selected one. */
 const CLUSTER_LABEL_COUNT = 15;
 
 /**
- * Folders drawn as bubbles in place of their files: one instanced mesh for the bubbles
- * and one line buffer for the imports between folders, so even home-assistant's 18,932
- * files become a few dozen shapes and a few hundred lines. A bubble's size follows its
- * file count and its colour its most important file.
+ * Folders drawn as bubbles instead of their files: one instanced mesh for the bubbles and
+ * one line buffer for imports between folders, so even home-assistant's 18,932 files turn
+ * into a few dozen shapes and a few hundred lines. Bubble size follows file count, colour
+ * follows the most important file.
  */
 function ClusterLayer({
   view,
@@ -509,10 +508,10 @@ function ClusterLayer({
     });
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    // radiusOf depends only on framing and largest, both listed.
+    // radiusOf only depends on framing and largest, and both are listed.
   }, [view, framing, largest]);
 
-  // Imports between two collapsed folders, brighter for more of them.
+  // Imports between two collapsed folders, brighter when there are more.
   const lines = useMemo(() => {
     const shown = view.edges.filter((e) => view.collapsed[e.from] && view.collapsed[e.to]);
     const heaviest = Math.max(1, ...shown.map((e) => e.weight));
@@ -554,14 +553,14 @@ function ClusterLayer({
         z: cluster.z,
         always: i === view.selected,
       })),
-    // radiusOf depends only on framing and largest.
+    // radiusOf only depends on framing and largest.
     [labelled, view.selected, framing, largest],
   );
   const register = useLabelGroup(registry, "folders", anchors);
 
   // Bubbles overlap where the layout packs folders together, and on home-assistant two
-  // giant ones sit over the core. Once a folder is open its files must show through them,
-  // so the rest turn to glass.
+  // huge ones sit right over the core. Once a folder is open you need to see its files
+  // through them, so the others go see-through.
   const opened = view.collapsed.some((collapsed) => !collapsed);
 
   const handleClick = (event: ThreeEvent<MouseEvent>) => {
@@ -605,8 +604,8 @@ function ClusterLayer({
 }
 
 /**
- * Eases the orbit target and the camera onto a node when one is focused, instead of
- * cutting, so it stays obvious where the view travelled from.
+ * Ease the orbit target and camera onto a focused node instead of jumping, so it's clear
+ * where the view moved from.
  */
 function CameraFocus({
   layout,
@@ -618,27 +617,30 @@ function CameraFocus({
 }: {
   layout: Layout;
   focusIndex?: number;
-  /** A folder to fly to, by object so focusing the same one twice still moves. */
+  /**
+   * A folder to fly to. Passed as an object so focusing the same one twice still moves
+   * the camera.
+   */
   focusCluster?: Cluster;
   radius: number;
   mode: SceneMode;
-  /** What the view frames; switching between files and folders flies to the new one. */
+  /** What the view frames. Switching between files and folders flies to the new frame. */
   frame: Frame;
 }) {
   const controls = useRef<ElementRef<typeof OrbitControls>>(null);
   const goal = useRef(new THREE.Vector3());
   const distance = useRef(radius);
   const active = useRef(false);
-  // Read, not depended on, by the focus effects below. Switching between the files and
-  // folders views changes the radius; were it a dependency, the focused file would be
-  // flown back to and the new view's frame overridden, leaving the camera inside the
-  // folder bubbles.
+  // The focus effects below read this but don't depend on it. Switching between files and
+  // folders changes the radius, and if it were a dependency we'd fly back to the focused
+  // file and override the new view's frame, leaving the camera stuck inside the folder
+  // bubbles.
   const radiusRef = useRef(radius);
   radiusRef.current = radius;
 
   // Orbit around the frame's centre (the important files, or the folders), not the
-  // origin. Fixed at mount: later frames are flown to below rather than jumped to, and a
-  // target prop that changed on every render would yank the camera off a node.
+  // origin. Set once at mount: later frames get flown to below, and a target prop that
+  // changed every render would yank the camera off a node.
   const showcase = mode === "showcase";
   const [center] = useState(() => new THREE.Vector3(frame.center.x, frame.center.y, frame.center.z));
   const firstFrame = useRef(true);
@@ -660,9 +662,9 @@ function CameraFocus({
 
     goal.current.set(positioned.x, positioned.y, positioned.z);
 
-    // Frame the node among its neighbours rather than filling the viewport with it. The
-    // floor is half the framing radius: a fixed 45 units once put the camera inside
-    // pallets/flask's cluster, where the neighbouring spheres filled the whole screen.
+    // Show the node with its neighbours instead of filling the screen with it. The
+    // minimum is half the framing radius; a fixed 45 units once put the camera inside
+    // pallets/flask's cluster, with the neighbouring spheres filling the whole screen.
     const radius = radiusRef.current;
     const own = radiusFor(positioned, radius) * 14;
     distance.current = Math.min(Math.max(own, radius * 0.5), radius * 1.4);
@@ -672,8 +674,8 @@ function CameraFocus({
   useEffect(() => {
     if (!focusCluster) return;
     goal.current.set(focusCluster.x, focusCluster.y, focusCluster.z);
-    // Frame the folder's own files: far enough to take in their spread, near enough that
-    // they read at the size they have in the files view.
+    // Frame the folder's files: far enough to see their spread, close enough that they
+    // look the same size as in the files view.
     const radius = radiusRef.current;
     distance.current = Math.min(Math.max(focusCluster.spread * 2.4, radius * 0.35), radius * 1.4);
     active.current = true;
@@ -686,7 +688,7 @@ function CameraFocus({
     const smoothing = 1 - Math.exp(-6 * delta);
     orbit.target.lerp(goal.current, smoothing);
 
-    // Move along the current viewing direction, so focusing never spins the scene.
+    // Move along the current view direction, so focusing never spins the scene.
     const desired = goal.current
       .clone()
       .add(state.camera.position.clone().sub(orbit.target).setLength(distance.current));
@@ -714,9 +716,9 @@ function CameraFocus({
 }
 
 /**
- * Shifts the projection so the orbit centre sits in the middle of the part of the canvas
- * the panels leave uncovered, rather than the middle of the whole canvas, which is behind
- * the panels' left edge. Picking uses the same projection, so clicks still land.
+ * Shift the projection so the orbit centre sits in the middle of the area the panels
+ * don't cover, not the middle of the whole canvas (which is behind the panels). Picking
+ * uses the same projection, so clicks still hit.
  */
 function ViewOffset({ occludedRight }: { occludedRight: number }) {
   const camera = useThree((state) => state.camera) as THREE.PerspectiveCamera;
@@ -751,7 +753,10 @@ export function GraphScene(
   props: SceneProps & {
     focusIndex?: number;
     mode?: SceneMode;
-    /** Pixels of the canvas's right edge covered by panels, to centre the view beside. */
+    /**
+     * How many pixels on the right are covered by panels, so we centre the view next to
+     * them.
+     */
     occludedRight?: number;
     /** Folder bubbles, in the folders view. */
     clusterView?: ClusterView;
@@ -761,9 +766,9 @@ export function GraphScene(
   const { layout, mode = "tool", occludedRight = 0 } = props;
   const showcase = mode === "showcase";
   // The explorer frames the important files; the showcase frames the whole graph, since
-  // its job is to show the shape of a codebase. The showcase sits beside the headline and
-  // nobody zooms it, so it draws nodes heavier: on screen a node's size goes as its scale
-  // over the camera's distance factor, 2.8 / 1.4 here against 1 / 1.6 in the explorer.
+  // it's there to show the shape of a codebase. The showcase sits next to the headline
+  // and nobody zooms it, so it draws nodes bigger: on screen a node's size is its scale
+  // over the camera distance factor, 2.8 / 1.4 here vs 1 / 1.6 in the explorer.
   const folders = props.clusterView?.clusters;
   const frame = useMemo<Frame>(
     () =>
@@ -774,26 +779,26 @@ export function GraphScene(
           : { center: layout.center, radius: layout.radius },
     [showcase, folders, layout],
   );
-  // Everything on screen is sized against one frame. In the folders view that is the
-  // folders' frame, so an expanded folder's files come out smaller than a bubble rather
-  // than as specks beside giant spheres.
+  // Everything gets sized against one frame. In the folders view that's the folders'
+  // frame, so an open folder's files come out a bit smaller than a bubble instead of
+  // specks next to giant spheres.
   const framing = frame.radius;
   const distance = frame.radius * (showcase ? 1.4 : 1.6);
   const { center } = frame;
   const [labels] = useState(() => new LabelRegistry());
 
   // The far plane has to reach past the furthest node as seen from the camera, not just
-  // past the framing radius. A hardcoded 20,000 clipped an entire 18,851-node scene out
-  // of existence; deriving it means the clip distance grows with the graph.
-  // `extent` is measured from the explorer's centre; the gap between the two centres
-  // covers the showcase, which orbits the other one.
+  // past the framing radius. A hardcoded 20,000 once clipped an entire 18,851-node scene
+  // out of existence; working it out means it grows with the graph. `extent` is measured
+  // from the explorer's centre, and the gap between the two centres covers the showcase,
+  // which orbits the other one.
   const gap = Math.hypot(
     center.x - layout.center.x,
     center.y - layout.center.y,
     center.z - layout.center.z,
   );
   const far = Math.max((distance + layout.extent + gap) * 1.5, 2_000);
-  // Keep some depth-buffer precision at large far values without clipping a focused node.
+  // Keep some depth precision when far is large, without clipping a focused node.
   const near = Math.min(1, Math.max(0.1, framing / 5_000));
 
   return (
@@ -805,10 +810,10 @@ export function GraphScene(
         far,
       }}
       dpr={[1, 2]}
-      // Clicking empty space clears the selection, which is what the gesture implies.
+      // Clicking empty space clears the selection, which is what you'd expect.
       onPointerMissed={() => props.onSelect(-1)}
-      // The scene cannot be read by a screen reader, so it says what it is; the node
-      // panel and the Ask panel's sources are the accessible way into the same data.
+      // Screen readers can't read the scene, so it says what it is. The node panel and
+      // the Ask panel's sources are the accessible way to the same info.
       role="img"
       aria-label={`3D dependency graph of ${layout.nodes.length} files, coloured by importance`}
     >

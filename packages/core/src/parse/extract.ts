@@ -1,7 +1,7 @@
 import type { FunctionSymbol, Language } from "../types.js";
 import { parseSource, stringLiteralValue, type SyntaxNode } from "./parser.js";
 
-/** A name bound locally by an import, and the name it refers to in the source module. */
+/** A name an import binds locally, plus the name it has in the module it came from. */
 export interface ImportedName {
   local: string;
   /** `*` for namespace imports, `default` for default imports. */
@@ -10,32 +10,32 @@ export interface ImportedName {
 
 export interface ImportRef {
   /**
-   * The raw module specifier, e.g. `./foo`, `react`, `pkg.mod`, `com.acme.Foo`,
-   * `github.com/acme/app/store`. Java wildcards end in `.*`; `.` stands for the file's
-   * own Go package.
+   * The module specifier as written, e.g. `./foo`, `react`, `pkg.mod`, `com.acme.Foo`,
+   * `github.com/acme/app/store`. Java wildcards end in `.*`, and `.` means the file's own
+   * Go package.
    */
   specifier: string;
   kind: "esm" | "require" | "dynamic" | "python" | "java" | "go";
   names: ImportedName[];
   line: number;
   /**
-   * For an import that names a package rather than a file (a Java wildcard, a Go
-   * package, or the file's own package), the names the file uses from it. The graph
-   * links only to the package's files that declare one of them.
+   * When the import points at a package instead of a file (Java wildcard, Go package, or
+   * the file's own package), the names the file actually uses from it. We only link to
+   * the package files that declare one of those.
    */
   uses?: string[];
   /**
-   * True for a dependency the language implies without an import statement: Java and Go
-   * files see their own package's declarations. Never counted as an external import.
+   * Set for dependencies the language gives you without an import, like Java and Go files
+   * seeing their own package. These never count as external imports.
    */
   implicit?: boolean;
 }
 
-/** A call site, attributed to the function that encloses it. */
+/** A call site, tied to the function it's inside. */
 export interface CallRef {
-  /** The callee's simple name: `foo` for `foo()`, `bar` for `obj.bar()`. */
+  /** Just the callee's name: `foo` for `foo()`, `bar` for `obj.bar()`. */
   callee: string;
-  /** Id of the enclosing function symbol; undefined for module-level code. */
+  /** Id of the function the call is in. Undefined at module level. */
   enclosing?: string;
   line: number;
 }
@@ -47,17 +47,17 @@ export interface ParsedFile {
   imports: ImportRef[];
   symbols: FunctionSymbol[];
   calls: CallRef[];
-  /** True when tree-sitter reported syntax errors; the results are best-effort. */
+  /** True if tree-sitter hit syntax errors. Results are best effort then. */
   hasErrors: boolean;
 }
 
-/** Mutable state threaded through the recursive descent. */
+/** State we carry down while walking the tree. */
 interface Context {
-  /** Enclosing class names, outermost first, used to build qualified names. */
+  /** Enclosing class names, outermost first, for building qualified names. */
   classStack: string[];
-  /** Id of the nearest enclosing function, for attributing call sites. */
+  /** Id of the closest enclosing function, so calls get attributed to it. */
   enclosing?: string;
-  /** Whether the current declaration sits under an `export`. */
+  /** Whether we're under an `export`. */
   exported: boolean;
 }
 
@@ -123,7 +123,7 @@ type Visitor = (node: SyntaxNode, ctx: Context, result: ParsedFile) => void;
 // JavaScript / TypeScript / TSX
 // ---------------------------------------------------------------------------
 
-/** Pulls the local/imported name pairs out of an `import_clause`. */
+/** Pull the local/imported name pairs out of an `import_clause`. */
 function jsImportedNames(clause: SyntaxNode | null): ImportedName[] {
   if (!clause) return [];
   const names: ImportedName[] = [];
@@ -168,7 +168,7 @@ function visitJs(node: SyntaxNode, ctx: Context, result: ParsedFile): void {
     }
 
     case "export_statement": {
-      // `export ... from "x"` is both a dependency and a re-export.
+      // `export ... from "x"` is a dependency and a re-export at the same time.
       const specifier = stringLiteralValue(node.childForFieldName("source"));
       if (specifier) {
         result.imports.push({
@@ -178,7 +178,7 @@ function visitJs(node: SyntaxNode, ctx: Context, result: ParsedFile): void {
           line: node.startPosition.row + 1,
         });
       }
-      // Anything declared here is exported; recurse with that flag set.
+      // Whatever's declared in here is exported, so recurse with the flag on.
       visitChildren(node, { ...ctx, exported: true }, result, visitJs);
       return;
     }
@@ -244,7 +244,7 @@ function visitJs(node: SyntaxNode, ctx: Context, result: ParsedFile): void {
     }
 
     case "variable_declarator": {
-      // `const foo = () => {}` and `const foo = function () {}` read as declarations.
+      // Treat `const foo = () => {}` and `const foo = function () {}` as declarations.
       const value = node.childForFieldName("value");
       const name = node.childForFieldName("name")?.text;
       if (name && value && (value.type === "arrow_function" || value.type === "function_expression")) {
@@ -263,7 +263,10 @@ function visitJs(node: SyntaxNode, ctx: Context, result: ParsedFile): void {
 // Python
 // ---------------------------------------------------------------------------
 
-/** Renders `module_name` for both absolute (`a.b`) and relative (`..a.b`) imports. */
+/**
+ * Turn `module_name` into a string, for absolute (`a.b`) and relative (`..a.b`) imports
+ * alike.
+ */
 function pythonModuleName(node: SyntaxNode | null): string | undefined {
   if (!node) return undefined;
   if (node.type === "relative_import") {
@@ -274,7 +277,7 @@ function pythonModuleName(node: SyntaxNode | null): string | undefined {
   return node.text;
 }
 
-/** A `dotted_name` or `aliased_import` yields one local binding. */
+/** A `dotted_name` or `aliased_import` gives one local binding. */
 function pythonBinding(node: SyntaxNode): ImportedName | undefined {
   if (node.type === "aliased_import") {
     const name = node.childForFieldName("name")?.text;
@@ -293,7 +296,7 @@ function pythonBinding(node: SyntaxNode): ImportedName | undefined {
 function visitPython(node: SyntaxNode, ctx: Context, result: ParsedFile): void {
   switch (node.type) {
     case "import_statement": {
-      // `import a.b, c as d` — each child is its own module dependency.
+      // `import a.b, c as d`: each child is a separate dependency.
       for (const child of node.namedChildren) {
         const binding = pythonBinding(child);
         const specifier =
@@ -343,7 +346,7 @@ function visitPython(node: SyntaxNode, ctx: Context, result: ParsedFile): void {
     case "class_definition": {
       const name = node.childForFieldName("name")?.text;
       if (!name) break;
-      // Python has no export keyword; the leading-underscore convention stands in.
+      // No export keyword in Python, so a leading underscore means private.
       const symbol = recordSymbol(result, node, name, "class", { ...ctx, exported: !name.startsWith("_") });
       visitChildren(
         node,
@@ -379,7 +382,7 @@ const JAVA_TYPE_DECLARATIONS = new Set([
   "annotation_type_declaration",
 ]);
 
-/** Names of types a Java file mentions, for matching against packages it sees whole. */
+/** Type names a Java file mentions, to match against packages it sees as a whole. */
 interface JavaState {
   types: Set<string>;
 }
@@ -390,10 +393,10 @@ function javaIsPublic(node: SyntaxNode): boolean {
 }
 
 /**
- * Java imports name classes, not files, but the convention of one top-level class per
- * file named after it lets `com.acme.Foo` find `…/com/acme/Foo.java`. Wildcard imports
- * and the file's own package name no file, so they carry the type names the file uses,
- * and the graph links to whichever of the package's files declare them.
+ * Java imports name classes, not files. But since each top-level class lives in a file
+ * named after it, `com.acme.Foo` can find `…/com/acme/Foo.java`. Wildcard imports and the
+ * file's own package don't point at a file, so they carry the type names the file uses,
+ * and the graph links to whichever package files declare them.
  */
 function extractJava(root: SyntaxNode, result: ParsedFile): void {
   const state: JavaState = { types: new Set() };
@@ -420,7 +423,7 @@ function extractJava(root: SyntaxNode, result: ParsedFile): void {
 
   visitJava(root, ROOT_CONTEXT, result, state);
 
-  // Types declared here or imported by name need no package to find them.
+  // Types declared here or imported by name don't need a package lookup.
   const known = new Set([
     ...result.symbols.filter((s) => s.kind === "class").map((s) => s.name),
     ...result.imports.flatMap((i) => i.names.map((n) => n.local)),
@@ -431,7 +434,8 @@ function extractJava(root: SyntaxNode, result: ParsedFile): void {
   }
   if (uses.length > 0) {
     result.imports.push({
-      // The default package is the file's own directory, which `*` stands for.
+      // No package means the default package, i.e. the file's own folder, which `*`
+      // stands for.
       specifier: pkg ? `${pkg}.*` : "*",
       kind: "java",
       names: [],
@@ -476,7 +480,7 @@ function visitJava(node: SyntaxNode, ctx: Context, result: ParsedFile, state: Ja
     case "method_invocation": {
       const name = node.childForFieldName("name")?.text;
       if (name) result.calls.push({ callee: name, enclosing: ctx.enclosing, line: node.startPosition.row + 1 });
-      // `Helper.run()` names the class through a plain identifier, not a type.
+      // In `Helper.run()` the class shows up as a plain identifier, not a type.
       const object = node.childForFieldName("object");
       if (object?.type === "identifier" && /^[A-Z]/.test(object.text)) state.types.add(object.text);
       break;
@@ -489,7 +493,7 @@ function visitJava(node: SyntaxNode, ctx: Context, result: ParsedFile, state: Ja
     }
 
     case "object_creation_expression": {
-      // `new Foo()` calls Foo's constructor, which is declared under Foo's own name.
+      // `new Foo()` calls Foo's constructor, which is declared under the name Foo.
       const type = node.childForFieldName("type");
       const name = type?.type === "generic_type" ? type.namedChild(0)?.text : type?.text;
       if (name && /^\w+$/.test(name)) {
@@ -507,9 +511,9 @@ function visitJava(node: SyntaxNode, ctx: Context, result: ParsedFile, state: Ja
 // ---------------------------------------------------------------------------
 
 /**
- * The name an import binds when it has no alias: the package name, which by convention
- * is the last path segment, skipping a major-version suffix (`…/v2`) and the forms
- * `gopkg.in/yaml.v3` and `go-github` use.
+ * The name an un-aliased import binds. By convention that's the last path segment,
+ * skipping a major version suffix (`…/v2`) and the `gopkg.in/yaml.v3` and `go-github`
+ * styles.
  */
 export function goPackageName(importPath: string): string {
   const parts = importPath.split("/");
@@ -518,7 +522,7 @@ export function goPackageName(importPath: string): string {
   return last.replace(/\.v\d+$/, "").replace(/^go-/, "").replace(/[-.]/g, "_");
 }
 
-/** Go's predeclared types and functions, which no file in the repository declares. */
+/** Go's built-in types and functions. No file in the repo declares these. */
 const GO_BUILTINS = new Set(
   (
     "any bool byte comparable complex64 complex128 error float32 float64 int int8 int16 int32 int64 " +
@@ -527,17 +531,17 @@ const GO_BUILTINS = new Set(
   ).split(" "),
 );
 
-/** Names a Go file uses: qualified through each import's local name, and bare. */
+/** Names a Go file uses, both through each import's local name and bare. */
 interface GoState {
   qualified: Map<string, Set<string>>;
   bare: Set<string>;
 }
 
 /**
- * Go imports name packages, which are directories. Each import carries the names the
- * file selects through it (`store.Open`, `store.Item`), and the file's own package,
- * which it sees without importing, carries the bare names it uses, so the graph can
- * link to the files in a package that declare what is used rather than to all of them.
+ * Go imports name packages, i.e. folders. Each import carries the names the file pulls
+ * through it (`store.Open`, `store.Item`), and the file's own package (visible without an
+ * import) carries the bare names it uses. That way the graph links to the files that
+ * declare what's used, not the whole package.
  */
 function extractGo(root: SyntaxNode, result: ParsedFile): void {
   const state: GoState = { qualified: new Map(), bare: new Set() };
@@ -559,7 +563,8 @@ function extractGo(root: SyntaxNode, result: ParsedFile): void {
         line: spec.startPosition.row + 1,
       };
       result.imports.push(ref);
-      // A blank or dot import uses the package without naming it; it links to all of it.
+      // Blank and dot imports use the package without naming anything, so they link to
+      // all of it.
       if (alias !== "_" && alias !== ".") locals.set(local, ref);
     }
   }
@@ -579,7 +584,7 @@ function extractGo(root: SyntaxNode, result: ParsedFile): void {
   }
 }
 
-/** The receiver type of a method: `T` for both `(t T)` and `(t *T)`, generics dropped. */
+/** A method's receiver type: `T` for both `(t T)` and `(t *T)`, generics stripped. */
 function goReceiverType(node: SyntaxNode): string | undefined {
   const receiver = node.childForFieldName("receiver");
   const type = receiver?.descendantsOfType("type_identifier")[0];
@@ -613,7 +618,7 @@ function visitGo(node: SyntaxNode, ctx: Context, result: ParsedFile, state: GoSt
         exported: exported(name),
       };
       const symbol = recordSymbol(result, node, name, "method", methodCtx);
-      // The receiver's type lives in this package, so it counts as a bare use.
+      // The receiver type is in this package, so count it as a bare use.
       if (receiver) state.bare.add(receiver);
       visitChildren(node, { ...methodCtx, enclosing: symbol.id, exported: false }, result, visit);
       return;
@@ -623,7 +628,7 @@ function visitGo(node: SyntaxNode, ctx: Context, result: ParsedFile, state: GoSt
       const name = node.childForFieldName("name")?.text;
       if (!name) break;
       recordSymbol(result, node, name, "class", { ...ctx, exported: exported(name) });
-      // Field and method types inside still count as uses.
+      // Types used inside fields and methods count too.
       const type = node.childForFieldName("type");
       if (type) visit(type, ctx, result);
       return;

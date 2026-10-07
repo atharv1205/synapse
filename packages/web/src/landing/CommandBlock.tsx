@@ -4,13 +4,13 @@ import { CheckIcon, CopyIcon } from "../components/icons";
 export interface CommandBlockProps {
   /** One shell command per entry. Copied joined by newlines, without prompts. */
   commands: string[];
-  /** Names what the block is for, for screen readers and the copy button. */
+  /** What the block is for, for screen readers and the copy button. */
   label: string;
 }
 
 /**
- * Shell commands with a copy button. The `$` prompts are drawn by CSS, so neither a
- * selection nor the copy button picks them up.
+ * Shell commands with a copy button. The `$` prompts are drawn with CSS, so selecting
+ * text or hitting copy never picks them up.
  */
 export function CommandBlock({ commands, label }: CommandBlockProps) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
@@ -27,8 +27,8 @@ export function CommandBlock({ commands, label }: CommandBlockProps) {
       await navigator.clipboard.writeText(commands.join("\n"));
       setState("copied");
     } catch {
-      // Clipboard access can be refused (an insecure origin, a denied permission).
-      // Selecting the text leaves the reader one keystroke from copying it themselves.
+      // Clipboard access can be refused (insecure origin, permission denied). Selecting
+      // the text at least leaves them one keystroke from copying it.
       const pre = preRef.current;
       const selection = window.getSelection();
       if (pre && selection) {

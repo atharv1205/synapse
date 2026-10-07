@@ -81,7 +81,7 @@ Shared:
   -v, --version          Print the installed version
 `;
 
-/** Wraps long text so multi-sentence output stays readable in a terminal. */
+/** Wrap long text so it stays readable in a terminal. */
 function wrap(text: string, indent = 0, width = 92): string {
   const pad = " ".repeat(indent);
   return text
@@ -103,12 +103,14 @@ function wrap(text: string, indent = 0, width = 92): string {
     .join(`\n${pad}`);
 }
 
-/** Prints a multi-line remediation block indented under a heading. */
+/** Print a multi-line fix-it message indented under a heading. */
 function printRemediation(message: string): void {
   console.error(message.split("\n").map((line) => `  ${line}`).join("\n"));
 }
 
-/** Validates --provider and reports the allowed values rather than failing obscurely. */
+/**
+ * Check --provider and list the allowed values, instead of failing in some confusing way.
+ */
 function providerFrom(values: Record<string, unknown>): ProviderName {
   const raw = values.provider;
   if (raw === undefined) return "ollama";
@@ -118,9 +120,8 @@ function providerFrom(values: Record<string, unknown>): ProviderName {
 }
 
 /**
- * The credential for a private clone. The flag wins over the environment when both are
- * present, but the environment is the better habit: a flag lands in shell history and
- * in this process's own argv.
+ * Token for a private clone. The flag wins if both are set, but the env var is the better
+ * habit since a flag ends up in shell history and in this process's argv.
  */
 function tokenFrom(values: Record<string, unknown>): string | undefined {
   const flag = typeof values.token === "string" ? values.token.trim() : "";
@@ -144,9 +145,9 @@ function llmOptions(values: Record<string, unknown>) {
 // ---------------------------------------------------------------------------
 
 /**
- * Files missing from the graph. This is never expected to be non-zero, so it is
- * reported loudly rather than tucked into a debug flag: each missing file takes its
- * imports and declarations with it and skews every score computed from them.
+ * Files missing from the graph. This should always be zero, so we shout about it instead
+ * of hiding it behind a debug flag. Every missing file takes its imports and declarations
+ * with it and throws off the scores.
  */
 function printParseFailures(graph: RepoGraph): void {
   const failures = graph.parseFailures ?? [];
@@ -254,7 +255,7 @@ async function runAnalyze(target: string, values: Record<string, unknown>): Prom
 // index / ask
 // ---------------------------------------------------------------------------
 
-/** Reads the graph a previous `analyze` wrote, with a pointed error if it is absent. */
+/** Read the graph a previous `analyze` wrote, with a clear error if there isn't one. */
 async function loadGraph(outDir: string): Promise<RepoGraph> {
   const file = path.join(outDir, "graph.json");
   try {
@@ -300,7 +301,8 @@ async function runAsk(question: string, values: Record<string, unknown>): Promis
   const outDir = resolveOutDir(root, values.out);
   const llm = llmOptions(values);
 
-  // Loaded so a first `ask` can build its own index rather than demanding `index` first.
+  // Load it so the first `ask` can build its own index instead of making you run `index`
+  // first.
   const graph = await loadGraph(outDir);
 
   const result = await ask(question, {
@@ -339,9 +341,9 @@ async function runAsk(question: string, values: Record<string, unknown>): Promis
 // ---------------------------------------------------------------------------
 
 /**
- * The installed version. package.json sits two levels above this file in both layouts
- * it runs from: packages/cli/dist/src/ in the monorepo, and dist/cli/ in the published
- * package, whose package.json is the one npm installed.
+ * Installed version. package.json is two folders up from this file in both layouts we run
+ * from: packages/cli/dist/src/ in the monorepo, and dist/cli/ in the published package
+ * (where it's the package.json npm installed).
  */
 function version(): string {
   const manifest = createRequire(import.meta.url)("../../package.json") as { version: string };

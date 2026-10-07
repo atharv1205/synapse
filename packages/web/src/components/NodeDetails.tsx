@@ -3,7 +3,7 @@ import { CloseIcon } from "./icons";
 
 export interface NodeDetailsProps {
   node: FileNode;
-  /** The file's declarations, resolved from the graph's canonical list. */
+  /** The file's declarations, looked up from the graph's main list. */
   declarations: FunctionNode[];
   onAskAbout(question: string): void;
   onClose(): void;
@@ -22,7 +22,7 @@ function languageName(language: Language): string {
   return LANGUAGE_NAMES[language] ?? language;
 }
 
-/** The question the "Ask about this file" button pre-fills. */
+/** The question the "Ask about this file" button fills in. */
 export function questionFor(node: FileNode): string {
   return `What does ${node.path} do and what depends on it?`;
 }
@@ -30,7 +30,7 @@ export function questionFor(node: FileNode): string {
 export function NodeDetails({ node, declarations, onAskAbout, onClose }: NodeDetailsProps) {
   const { metrics } = node;
   const summarised = declarations.filter((fn) => fn.summary);
-  // Functions carry an importance score already, so the panel just orders by it.
+  // Functions already have an importance score, so just sort by it.
   const top = [...summarised].sort((a, b) => b.importance - a.importance).slice(0, 5);
 
   return (

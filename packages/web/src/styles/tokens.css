@@ -1,14 +1,14 @@
 /*
  * Shared by the landing page and the tool.
  *
- * The palette is a darkfield microscope slide: a deep blue-violet field, and three
- * fluorescent stains that encode importance, low to high — cyan, green, amber. The
- * stains are data colours first; cyan doubles as the interactive accent because it is
- * the one a reader already meets on every ordinary node.
+ * The palette is a darkfield microscope slide: a deep blue-violet background and three
+ * fluorescent stains that show importance from low to high, cyan, green, amber. They're
+ * data colours first; cyan doubles as the accent for interactive stuff because it's the
+ * colour you already see on every normal node.
  *
- * Fonts are self-hosted from @fontsource-variable, so the tool renders the same offline
- * and never calls out to a font CDN. Geologica carries a sharpness axis, used only on
- * display type; body text stays on the default soft cut.
+ * Fonts are self-hosted from @fontsource-variable, so the tool looks the same offline and
+ * never calls a font CDN. Geologica has a sharpness axis that we only use for display
+ * text; body text uses the default soft cut.
  */
 @import "@fontsource-variable/geologica/shrp.css";
 @import "@fontsource-variable/jetbrains-mono/wght.css";
@@ -112,7 +112,7 @@ pre {
   background: transparent;
 }
 
-/* Present for screen readers and the document outline, absent from the layout. */
+/* There for screen readers and the document outline, hidden from the layout. */
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -222,7 +222,7 @@ pre {
   background: var(--green);
 }
 
-/* An informational spinner used by the loading states. */
+/* Spinner for the loading screens. */
 .spinner {
   width: 26px;
   height: 26px;

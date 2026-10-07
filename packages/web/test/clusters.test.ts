@@ -12,7 +12,7 @@ function files(paths: string[]): ClusterInput[] {
   return paths.map((p) => file(p));
 }
 
-/** Every file lands in exactly one cluster. */
+/** Every file ends up in exactly one cluster. */
 function assertPartition(nodes: ClusterInput[], groups: Map<string, number[]>) {
   const seen = [...groups.values()].flat().sort((a, b) => a - b);
   assert.deepEqual(seen, nodes.map((n) => n.index).sort((a, b) => a - b));
@@ -46,7 +46,7 @@ describe("clusterByFolder", () => {
   });
 
   it("folds a folder with too many subfolders into the largest few plus one overflow group", () => {
-    // Like homeassistant/components: hundreds of integrations under one folder.
+    // Like homeassistant/components: hundreds of integrations in one folder.
     const nodes = files([
       ...Array.from({ length: 300 }, (_, i) => `components/c${i}/__init__.py`),
       ...Array.from({ length: 20 }, (_, i) => `components/huge/f${i}.py`),
@@ -60,8 +60,8 @@ describe("clusterByFolder", () => {
   });
 
   it("splits every giant folder, not only the first one it meets", () => {
-    // Like home-assistant: components/ and tests/components/ each hold hundreds of
-    // integrations, and the first must not spend the whole budget.
+    // Like home-assistant: components/ and tests/components/ both hold hundreds of
+    // integrations, and the first one can't be allowed to use up the whole budget.
     const nodes = files([
       ...Array.from({ length: 600 }, (_, i) => `components/c${i % 200}/f${i}.py`),
       ...Array.from({ length: 500 }, (_, i) => `tests/components/c${i % 200}/t${i}.py`),
