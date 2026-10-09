@@ -12,6 +12,36 @@ and retrieval are local, and summaries and answers come from a local model throu
 Ollama unless you choose Gemini or Claude. It reads JavaScript, TypeScript, Python, Java
 and Go.
 
+<p align="center">
+  <a href="https://youtu.be/bgRxECxOVcM">
+    <img src="https://raw.githubusercontent.com/atharv1205/synapse/main/docs/video.jpg" alt="Watch the Synapse walkthrough on YouTube: find the files that matter" width="100%">
+  </a>
+</p>
+
+<p align="center">
+  <b><a href="https://youtu.be/bgRxECxOVcM">Watch the six-minute walkthrough on YouTube</a></b><br>
+  <sub>One command on Flask, reading the 3D map, how files are ranked, asking questions
+  with a local model, the folders view for big repositories, and keeping it private.</sub>
+</p>
+
+<details>
+<summary>Chapters</summary>
+
+| Time | Chapter |
+| --- | --- |
+| [0:00](https://youtu.be/bgRxECxOVcM?t=0) | Day one at a new job |
+| [0:27](https://youtu.be/bgRxECxOVcM?t=27) | What Synapse does |
+| [1:02](https://youtu.be/bgRxECxOVcM?t=62) | One command, about eight seconds |
+| [1:25](https://youtu.be/bgRxECxOVcM?t=85) | Reading the 3D map |
+| [2:18](https://youtu.be/bgRxECxOVcM?t=138) | How files are ranked: PageRank and git churn |
+| [2:56](https://youtu.be/bgRxECxOVcM?t=176) | Running a local model with Ollama |
+| [3:32](https://youtu.be/bgRxECxOVcM?t=212) | Asking questions with cited sources |
+| [3:47](https://youtu.be/bgRxECxOVcM?t=227) | Big repositories: the folders view |
+| [4:18](https://youtu.be/bgRxECxOVcM?t=258) | Your own project, and privacy |
+| [5:05](https://youtu.be/bgRxECxOVcM?t=305) | Installing it |
+
+</details>
+
 ![synapse-map on pallets/flask: the terminal run ranks the files, then the explorer narrows to the important ones, opens a file, answers a question with cited sources and flies to one, and switches to the folder view to open a folder](https://raw.githubusercontent.com/atharv1205/synapse/main/docs/demo.gif)
 
 <sub>Recorded from a real run of the packaged CLI on pallets/flask with a local model

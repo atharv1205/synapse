@@ -6,6 +6,13 @@ All notable changes to `synapse-map` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1]
+
+### Added
+
+- A video walkthrough at the top of the README, linked to YouTube, with chapter
+  timestamps, so it also shows on the npm package page.
+
 ## [0.1.0]
 
 The first public release.
@@ -28,5 +35,6 @@ The first public release.
 - A local server bound to `127.0.0.1` with a host guard against DNS rebinding and a
   strict Content-Security-Policy.
 
-[Unreleased]: https://github.com/atharv1205/synapse/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/atharv1205/synapse/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/atharv1205/synapse/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/atharv1205/synapse/releases/tag/v0.1.0
